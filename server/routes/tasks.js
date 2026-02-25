@@ -2,6 +2,7 @@ const express = require('express');
 const Task = require('../models/Task');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const ActivityLog = require('../models/ActivityLog');
 
 const router = express.Router();
 
@@ -44,6 +45,15 @@ router.post('/', async (req, res) => {
       type: 'task_created',
       message: `New task assigned: "${title}"`,
       taskId: task._id,
+    });
+
+    // Log task creation
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: createdBy,
+      action: 'task_created',
+      description: `Task "${title}" created and assigned to ${assignedUser.name}`,
+      changes: { status: 'pending', priority, deadline },
     });
 
     return res.status(201).json({ task: populatedTask });
@@ -97,17 +107,28 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { title, description, assignedTo, priority, deadline, status, progress, timeSpent } = req.body;
+    const { title, description, assignedTo, priority, deadline, status, progress, timeSpent, userId } = req.body;
+
+    // Get old task for change tracking
+    const oldTask = await Task.findById(req.params.id);
+    if (!oldTask) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
 
     const updates = {};
-    if (title) updates.title = title;
-    if (description) updates.description = description;
-    if (priority) updates.priority = priority;
-    if (deadline) updates.deadline = deadline;
-    if (status) updates.status = status;
-    if (typeof progress === 'number') updates.progress = progress;
-    if (typeof timeSpent === 'number') updates.timeSpent = timeSpent;
-    if (assignedTo) updates.assignedTo = assignedTo;
+    const changes = {};
+    
+    if (title) { updates.title = title; changes.title = { from: oldTask.title, to: title }; }
+    if (description) { updates.description = description; changes.description = { from: oldTask.description, to: description }; }
+    if (priority) { updates.priority = priority; changes.priority = { from: oldTask.priority, to: priority }; }
+    if (deadline) { updates.deadline = deadline; changes.deadline = { from: oldTask.deadline, to: deadline }; }
+    if (status) { updates.status = status; changes.status = { from: oldTask.status, to: status }; }
+    if (typeof progress === 'number') { 
+      updates.progress = progress; 
+      changes.progress = { from: oldTask.progress, to: progress };
+    }
+    if (typeof timeSpent === 'number') { updates.timeSpent = timeSpent; }
+    if (assignedTo) { updates.assignedTo = assignedTo; }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ message: 'No updates provided.' });
@@ -128,11 +149,37 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Task not found.' });
     }
 
+    // Create notification
     await Notification.create({
       userId: task.assignedTo._id,
       type: 'task_updated',
       message: `Task updated: "${task.title}"`,
       taskId: task._id,
+    });
+
+    // Log activity with detailed changes
+    let action = 'task_updated';
+    let logDescription = `Task "${task.title}" updated`;
+
+    if (typeof progress === 'number' && progress !== oldTask.progress) {
+      action = 'progress_updated';
+      logDescription = `Progress updated from ${oldTask.progress}% to ${progress}%`;
+    } else if (status && status !== oldTask.status) {
+      action = 'status_changed';
+      logDescription = `Status changed from ${oldTask.status} to ${status}`;
+    }
+
+    if (status === 'completed' && oldTask.status !== 'completed') {
+      action = 'task_completed';
+      logDescription = `Task "${task.title}" marked as completed`;
+    }
+
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: userId || task.assignedTo._id,
+      action,
+      description: logDescription,
+      changes,
     });
 
     return res.json({ task });
@@ -195,6 +242,15 @@ router.post('/:id/timer/start', async (req, res) => {
       .populate('assignedTo', 'name email role')
       .populate('createdBy', 'name email role');
 
+    // Log timer start activity
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: task.assignedTo,
+      action: 'timer_started',
+      description: `Timer started for task "${populatedTask.title}"`,
+      changes: { isRunning: { from: false, to: true }, currentStartTime: new Date() },
+    });
+
     return res.json({ 
       message: 'Timer started successfully.',
       task: populatedTask,
@@ -233,6 +289,19 @@ router.post('/:id/timer/stop', async (req, res) => {
     const populatedTask = await Task.findById(task._id)
       .populate('assignedTo', 'name email role')
       .populate('createdBy', 'name email role');
+
+    // Log timer stop activity
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: task.assignedTo,
+      action: 'timer_stopped',
+      description: `Timer stopped for task "${populatedTask.title}" (Session: ${Math.floor(sessionTime / 60)} min ${sessionTime % 60} sec)`,
+      changes: { 
+        isRunning: { from: true, to: false }, 
+        totalElapsedTime: { from: task.totalElapsedTime - sessionTime, to: task.totalElapsedTime },
+        sessionTime,
+      },
+    });
 
     return res.json({ 
       message: 'Timer stopped successfully.',

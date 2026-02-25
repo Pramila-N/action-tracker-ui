@@ -163,18 +163,29 @@ export function StudentTaskDetails() {
 
   // Update task directly (for progress, status, etc.)
   const updateTask = async (updates: Partial<Task>) => {
-    if (!task) return;
+    if (!task || !user) return;
 
     try {
+      // Build payload with only necessary fields (extracting IDs from objects)
+      const payload = {
+        title: task.title,
+        description: task.description,
+        priority: task.priority,
+        deadline: task.deadline,
+        status: task.status,
+        progress: task.progress,
+        timeSpent: task.timeSpent,
+        assignedTo: typeof task.assignedTo === 'object' ? task.assignedTo.id : task.assignedTo,
+        userId: user.id, // Include userId for activity logging
+        ...updates,
+      };
+
       const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...task,
-          ...updates,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -183,7 +194,7 @@ export function StudentTaskDetails() {
         throw new Error(data?.message || 'Failed to update task.');
       }
 
-      // Reload task
+      // Reload task to get fresh data from database
       await loadTask();
     } catch (error) {
       console.error('Update task error:', error);
