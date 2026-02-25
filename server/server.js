@@ -1,23 +1,43 @@
+const express = require('express');
+const cors = require('cors');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
+const authRoutes = require('./routes/auth');
+
 const MONGO_URI = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 
 if (!MONGO_URI) {
   console.error('❌ Error: MONGO_URI is not defined in .env file');
   process.exit(1);
 }
 
-// Connect to MongoDB
+const app = express();
+
+app.use(express.json());
+app.use(cors({
+  origin: CLIENT_ORIGIN,
+  credentials: true,
+}));
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.use('/api/auth', authRoutes);
+
+// Connect to MongoDB and start server
 mongoose.connect(MONGO_URI)
   .then(() => {
     console.log('✅ Successfully connected to MongoDB!');
     console.log(`📌 Database: ${mongoose.connection.name}`);
     console.log(`🔗 Host: ${mongoose.connection.host}`);
-    
-    // Optional: Start server on successful connection
-    console.log(`\n🚀 Server is ready on port ${PORT}`);
+
+    app.listen(PORT, () => {
+      console.log(`\n🚀 Server is running on port ${PORT}`);
+    });
   })
   .catch((error) => {
     console.error('❌ Failed to connect to MongoDB:', error.message);

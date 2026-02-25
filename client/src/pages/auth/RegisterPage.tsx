@@ -62,9 +62,10 @@ export function RegisterPage() {
         navigate(`/${role}`);
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Something went wrong. Please try again.';
       toast({
         title: 'Registration Failed',
-        description: 'Something went wrong. Please try again.',
+        description: message,
         variant: 'destructive',
       });
     } finally {

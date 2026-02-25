@@ -43,9 +43,10 @@ export function LoginPage() {
         navigate(`/${role}`);
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid credentials';
       toast({
         title: 'Login Failed',
-        description: 'Invalid credentials',
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -178,7 +179,7 @@ export function LoginPage() {
           </Card>
 
           <p className="text-center text-xs text-muted-foreground">
-            Demo: Use any email/password with selected role
+            Use the credentials provided by your administrator.
           </p>
         </div>
       </div>
