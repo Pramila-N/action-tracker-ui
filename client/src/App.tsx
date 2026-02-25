@@ -13,7 +13,6 @@ import { RegisterPage } from "@/pages/auth/RegisterPage";
 import { AdminDashboard } from "@/pages/admin/AdminDashboard";
 import { UsersManagement } from "@/pages/admin/UsersManagement";
 import { AdminReports } from "@/pages/admin/AdminReports";
-import { AdminSettings } from "@/pages/admin/AdminSettings";
 
 // Faculty Pages
 import { FacultyDashboard } from "@/pages/faculty/FacultyDashboard";
@@ -71,7 +70,6 @@ function AppRoutes() {
       <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
       <Route path="/admin/users" element={<ProtectedRoute><UsersManagement /></ProtectedRoute>} />
       <Route path="/admin/reports" element={<ProtectedRoute><AdminReports /></ProtectedRoute>} />
-      <Route path="/admin/settings" element={<ProtectedRoute><AdminSettings /></ProtectedRoute>} />
       
       {/* Faculty Routes */}
       <Route path="/faculty" element={<ProtectedRoute><FacultyDashboard /></ProtectedRoute>} />

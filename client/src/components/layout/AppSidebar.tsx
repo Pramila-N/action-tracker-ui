@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Users,
   BarChart3,
-  Settings,
   ListTodo,
   PlusCircle,
   Clock,
@@ -28,7 +27,6 @@ const adminMenuItems = [
   { title: 'Dashboard', url: '/admin', icon: LayoutDashboard },
   { title: 'Users', url: '/admin/users', icon: Users },
   { title: 'Reports', url: '/admin/reports', icon: BarChart3 },
-  { title: 'Settings', url: '/admin/settings', icon: Settings },
 ];
 
 const facultyMenuItems = [

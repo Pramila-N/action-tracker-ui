@@ -63,7 +63,7 @@ export function StudentDashboard() {
 
   const completedCount = studentTasks.filter(t => t.status === 'completed').length;
   const inProgressCount = studentTasks.filter(t => t.status === 'in_progress').length;
-  const totalTime = studentTasks.reduce((acc, t) => acc + t.timeSpent, 0);
+  const totalTime = studentTasks.reduce((acc, t) => acc + (t.currentElapsedTime || t.totalElapsedTime || 0), 0);
   const todaysTasks = studentTasks.filter(t => t.status !== 'completed').slice(0, 3);
 
   return (
@@ -122,7 +122,7 @@ export function StudentDashboard() {
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <span>Due: {new Date(task.deadline).toLocaleDateString()}</span>
-                        <span>Time: {formatTime(task.timeSpent)}</span>
+                        <span>Time: {formatTime(task.currentElapsedTime || task.totalElapsedTime || 0)}</span>
                       </div>
                       <Progress value={task.progress} className="h-2 w-full max-w-xs" />
                     </div>
