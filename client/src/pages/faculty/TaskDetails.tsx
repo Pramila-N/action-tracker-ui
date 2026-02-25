@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,13 +8,68 @@ import { PriorityBadge } from '@/components/PriorityBadge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ArrowLeft, Edit, Clock, Calendar, User } from 'lucide-react';
-import { mockTasks, formatTime } from '@/data/mockData';
+import { formatTime } from '@/data/mockData';
+import { Task } from '@/types';
 
 export function TaskDetails() {
   const { taskId } = useParams();
   const navigate = useNavigate();
-  
-  const task = mockTasks.find(t => t.id === taskId);
+  const [task, setTask] = useState<Task | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  const normalizeTask = (data: Task): Task => ({
+    ...data,
+    createdAt: new Date(data.createdAt),
+    deadline: new Date(data.deadline),
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadTask = async () => {
+      if (!taskId) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.message || 'Failed to load task.');
+        }
+
+        if (isMounted) {
+          setTask(normalizeTask(data.task));
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadTask();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [API_BASE_URL, taskId]);
+
+  if (isLoading) {
+    return (
+      <DashboardLayout requiredRole="faculty">
+        <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+          <p className="text-lg text-muted-foreground">Loading task...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!task) {
     return (

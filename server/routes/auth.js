@@ -2,9 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const LoginHistory = require('../models/LoginHistory');
-
 const router = express.Router();
-
 router.post('/login', async (req, res) => {
   try {
     const { email, password, role } = req.body;

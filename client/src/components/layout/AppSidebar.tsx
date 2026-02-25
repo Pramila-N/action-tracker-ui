@@ -7,7 +7,6 @@ import {
   ListTodo,
   PlusCircle,
   Clock,
-  User,
   CheckSquare,
 } from 'lucide-react';
 import {
@@ -37,14 +36,12 @@ const facultyMenuItems = [
   { title: 'Tasks', url: '/faculty/tasks', icon: ListTodo },
   { title: 'Create Task', url: '/faculty/tasks/create', icon: PlusCircle },
   { title: 'Reports', url: '/faculty/reports', icon: BarChart3 },
-  { title: 'Profile', url: '/faculty/profile', icon: User },
 ];
 
 const studentMenuItems = [
   { title: 'Dashboard', url: '/student', icon: LayoutDashboard },
   { title: 'My Tasks', url: '/student/tasks', icon: CheckSquare },
   { title: 'Time Reports', url: '/student/time-reports', icon: Clock },
-  { title: 'Profile', url: '/student/profile', icon: User },
 ];
 
 export function AppSidebar() {
