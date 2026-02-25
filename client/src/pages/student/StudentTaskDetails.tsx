@@ -8,66 +8,230 @@ import { PriorityBadge } from '@/components/PriorityBadge';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
 import { ArrowLeft, Play, Pause, CheckCircle, Calendar, User, Clock } from 'lucide-react';
-import { mockTasks, formatTime } from '@/data/mockData';
+import { formatTime } from '@/data/mockData';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { Task } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function StudentTaskDetails() {
   const { taskId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
   
-  const task = mockTasks.find(t => t.id === taskId);
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
   
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(task?.timeSpent || 0);
-  const [progress, setProgress] = useState(task?.progress || 0);
-  const [status, setStatus] = useState(task?.status || 'pending');
+  const [task, setTask] = useState<Task | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentElapsedTime, setCurrentElapsedTime] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState<'pending' | 'in_progress' | 'completed' | 'overdue'>('pending');
+
+  // Load task from backend
+  const loadTask = async () => {
+    if (!taskId || !user) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load task.');
+      }
+
+      const loadedTask: Task = {
+        ...data.task,
+        createdAt: new Date(data.task.createdAt),
+        deadline: new Date(data.task.deadline),
+      };
+
+      setTask(loadedTask);
+      setCurrentElapsedTime(loadedTask.currentElapsedTime || loadedTask.timeSpent || 0);
+      setProgress(loadedTask.progress || 0);
+      setStatus(loadedTask.status || 'pending');
+    } catch (error) {
+      console.error('Load task error:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load task details.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
+    loadTask();
+  }, [taskId, user]);
+
+  // Update timer display every second if timer is running
+  useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isTimerRunning) {
+    
+    if (task?.isRunning && task?.currentStartTime) {
       interval = setInterval(() => {
-        setElapsedTime(prev => prev + 1);
+        const startTime = new Date(task.currentStartTime).getTime();
+        const now = Date.now();
+        const sessionTime = Math.floor((now - startTime) / 1000);
+        const totalElapsedTime = (task.totalElapsedTime || 0) + sessionTime;
+        setCurrentElapsedTime(totalElapsedTime);
       }, 1000);
     }
+    
     return () => clearInterval(interval);
-  }, [isTimerRunning]);
+  }, [task?.isRunning, task?.currentStartTime, task?.totalElapsedTime]);
 
-  const handleToggleTimer = useCallback(() => {
-    setIsTimerRunning(prev => !prev);
-    if (!isTimerRunning) {
-      setStatus('in_progress');
+  // Start the timer
+  const handleStartTimer = async () => {
+    if (!taskId) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/timer/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to start timer.');
+      }
+
+      // Reload task to get updated state
+      await loadTask();
+
       toast({
         title: 'Timer Started',
         description: 'Your work session has begun.',
       });
-    } else {
+    } catch (error: any) {
+      console.error('Start timer error:', error);
       toast({
-        title: 'Timer Paused',
-        description: `Time saved: ${formatTime(elapsedTime)}`,
+        title: 'Error',
+        description: error.message || 'Failed to start timer.',
+        variant: 'destructive',
       });
     }
-  }, [isTimerRunning, elapsedTime, toast]);
+  };
 
-  const handleMarkComplete = useCallback(() => {
-    if (isTimerRunning) {
-      setIsTimerRunning(false);
+  // Stop the timer
+  const handleStopTimer = async () => {
+    if (!taskId) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/timer/stop`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to stop timer.');
+      }
+
+      // Reload task to get updated state
+      await loadTask();
+
+      toast({
+        title: 'Timer Stopped',
+        description: `Session saved: ${formatTime(data.sessionTime || 0)}`,
+      });
+    } catch (error: any) {
+      console.error('Stop timer error:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to stop timer.',
+        variant: 'destructive',
+      });
     }
-    setStatus('completed');
-    setProgress(100);
+  };
+
+  const handleToggleTimer = useCallback(async () => {
+    if (task?.isRunning) {
+      await handleStopTimer();
+    } else {
+      await handleStartTimer();
+    }
+  }, [task?.isRunning]);
+
+  // Update task directly (for progress, status, etc.)
+  const updateTask = async (updates: Partial<Task>) => {
+    if (!task) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...task,
+          ...updates,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to update task.');
+      }
+
+      // Reload task
+      await loadTask();
+    } catch (error) {
+      console.error('Update task error:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save changes.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleMarkComplete = useCallback(async () => {
+    // Stop timer if running
+    if (task?.isRunning) {
+      await handleStopTimer();
+    }
+    
+    await updateTask({ 
+      status: 'completed', 
+      progress: 100,
+    });
+    
     toast({
       title: 'Task Completed! 🎉',
       description: 'Great job! The task has been marked as complete.',
     });
-  }, [isTimerRunning, toast]);
+  }, [task?.isRunning]);
 
-  const handleProgressChange = useCallback((value: number[]) => {
-    setProgress(value[0]);
-    if (value[0] === 100 && status !== 'completed') {
-      handleMarkComplete();
+  const handleProgressChange = useCallback(async (value: number[]) => {
+    const newProgress = value[0];
+    setProgress(newProgress);
+    
+    if (newProgress === 100 && status !== 'completed') {
+      await handleMarkComplete();
+    } else {
+      await updateTask({ progress: newProgress });
     }
   }, [status, handleMarkComplete]);
+
+  if (isLoading) {
+    return (
+      <DashboardLayout requiredRole="student">
+        <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+          <p className="text-lg text-muted-foreground">Loading task...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!task) {
     return (
@@ -153,7 +317,7 @@ export function StudentTaskDetails() {
             {/* Timer Card */}
             <Card className={cn(
               "shadow-card transition-all duration-300",
-              isTimerRunning && "ring-2 ring-primary shadow-card-hover"
+              task?.isRunning && "ring-2 ring-primary shadow-card-hover"
             )}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -165,12 +329,12 @@ export function StudentTaskDetails() {
                 <div className="text-center">
                   <p className={cn(
                     "text-4xl font-mono font-bold tracking-wider",
-                    isTimerRunning && "text-primary animate-pulse"
+                    task?.isRunning && "text-primary animate-pulse"
                   )}>
-                    {formatTimerDisplay(elapsedTime)}
+                    {formatTimerDisplay(currentElapsedTime)}
                   </p>
                   <p className="text-sm text-muted-foreground mt-2">
-                    {isTimerRunning ? 'Timer running...' : 'Timer paused'}
+                    {task?.isRunning ? 'Timer running...' : 'Timer stopped'}
                   </p>
                 </div>
 
@@ -178,13 +342,13 @@ export function StudentTaskDetails() {
                   onClick={handleToggleTimer}
                   className={cn(
                     "w-full gap-2 h-12 text-lg",
-                    isTimerRunning 
+                    task?.isRunning 
                       ? "bg-warning hover:bg-warning/90" 
                       : "bg-success hover:bg-success/90"
                   )}
                   disabled={status === 'completed'}
                 >
-                  {isTimerRunning ? (
+                  {task?.isRunning ? (
                     <>
                       <Pause className="h-5 w-5" />
                       Stop Timer
@@ -233,7 +397,7 @@ export function StudentTaskDetails() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Total Time</p>
-                    <p className="font-medium">{formatTime(elapsedTime)}</p>
+                    <p className="font-medium">{formatTime(currentElapsedTime)}</p>
                   </div>
                 </div>
               </CardContent>

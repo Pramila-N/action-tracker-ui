@@ -167,4 +167,82 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Timer endpoints
+router.post('/:id/timer/start', async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    if (task.isRunning) {
+      return res.status(400).json({ message: 'Timer is already running for this task.' });
+    }
+
+    // Start the timer
+    task.currentStartTime = new Date();
+    task.isRunning = true;
+    
+    // Update status to in_progress if it's pending
+    if (task.status === 'pending') {
+      task.status = 'in_progress';
+    }
+
+    await task.save();
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role');
+
+    return res.json({ 
+      message: 'Timer started successfully.',
+      task: populatedTask,
+    });
+  } catch (error) {
+    console.error('Start timer error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+router.post('/:id/timer/stop', async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    if (!task.isRunning) {
+      return res.status(400).json({ message: 'Timer is not running for this task.' });
+    }
+
+    // Calculate session time
+    const sessionTime = Math.floor((Date.now() - task.currentStartTime.getTime()) / 1000);
+    
+    // Add session time to total elapsed time
+    task.totalElapsedTime += sessionTime;
+    task.currentStartTime = null;
+    task.isRunning = false;
+    
+    // Keep timeSpent in sync for backward compatibility
+    task.timeSpent = task.totalElapsedTime;
+
+    await task.save();
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role');
+
+    return res.json({ 
+      message: 'Timer stopped successfully.',
+      task: populatedTask,
+      sessionTime,
+    });
+  } catch (error) {
+    console.error('Stop timer error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
 module.exports = router;

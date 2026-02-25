@@ -23,8 +23,14 @@ export interface Task {
   createdAt: Date;
   assignedTo: User;
   createdBy: User;
-  timeSpent: number; // in seconds
+  timeSpent: number; // in seconds (deprecated, use currentElapsedTime)
   progress: number; // 0-100
+  
+  // Timer fields
+  totalElapsedTime?: number; // Total accumulated time in seconds
+  currentStartTime?: Date | string; // When current session started
+  isRunning?: boolean; // Is timer currently running
+  currentElapsedTime?: number; // Computed: totalElapsedTime + current session time
 }
 
 export interface TimeEntry {
