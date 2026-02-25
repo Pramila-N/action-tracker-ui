@@ -227,9 +227,10 @@ export function FacultyTasks() {
                               <DropdownMenuItem 
                                 className="text-destructive focus:text-destructive"
                                 onClick={() => handleDelete(task.id)}
+                                disabled={task.status === 'completed'}
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
+                                Delete {task.status === 'completed' && '(Completed tasks cannot be deleted)'}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

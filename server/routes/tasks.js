@@ -76,10 +76,22 @@ router.get('/', async (req, res) => {
       filter.createdBy = createdBy;
     }
 
+    console.log('📊 Tasks GET request with filter:', filter);
+
     const tasks = await Task.find(filter)
       .sort({ createdAt: -1 })
       .populate('assignedTo', 'name email role')
       .populate('createdBy', 'name email role');
+
+    console.log(`📊 Found ${tasks.length} tasks`);
+    if (tasks.length > 0) {
+      console.log('📊 Sample task:', {
+        id: tasks[0]._id,
+        title: tasks[0].title,
+        assignedTo: tasks[0].assignedTo,
+        createdBy: tasks[0].createdBy,
+      });
+    }
 
     return res.json({ tasks });
   } catch (error) {
