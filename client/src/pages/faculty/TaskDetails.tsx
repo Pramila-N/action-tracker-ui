@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import { Progress } from '@/components/ui/progress';
@@ -10,12 +11,18 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ArrowLeft, Edit, Clock, Calendar, User } from 'lucide-react';
 import { formatTime } from '@/data/mockData';
 import { Task } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 export function TaskDetails() {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [task, setTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [remarks, setRemarks] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -43,7 +50,9 @@ export function TaskDetails() {
         }
 
         if (isMounted) {
-          setTask(normalizeTask(data.task));
+          const normalized = normalizeTask(data.task);
+          setTask(normalized);
+          setRemarks(normalized.review?.remarks || '');
         }
       } catch (error) {
         console.error(error);
@@ -84,6 +93,58 @@ export function TaskDetails() {
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const submissionUrl = task.submission?.fileName
+    ? `${API_BASE_URL}/api/tasks/download/${task.submission.fileName}`
+    : null;
+
+  const handleSaveRemarks = async () => {
+    if (!taskId || !user) {
+      return;
+    }
+
+    if (!remarks.trim()) {
+      toast({
+        title: 'Remarks required',
+        description: 'Please add remarks before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/remarks`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ remarks, reviewedBy: user.id }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to save remarks.');
+      }
+
+      setTask(normalizeTask(data.task));
+
+      toast({
+        title: 'Remarks saved',
+        description: 'Your review has been sent to the student.',
+      });
+    } catch (error: any) {
+      console.error('Save remarks error:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save remarks.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -171,7 +232,9 @@ export function TaskDetails() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Time Spent</p>
-                    <p className="font-medium">{formatTime(task.timeSpent)}</p>
+                    <p className="font-medium">
+                      {formatTime(task.currentElapsedTime || task.totalElapsedTime || task.timeSpent)}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -183,6 +246,57 @@ export function TaskDetails() {
                     <p className="font-medium">{task.createdBy.name}</p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle>Submission Review</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {!task.submission?.fileName ? (
+                  <p className="text-sm text-muted-foreground">No submission received yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="rounded-md border p-3 text-sm">
+                      <p className="font-medium">Submitted File</p>
+                      {submissionUrl && (
+                        <a
+                          href={submissionUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary underline underline-offset-2"
+                        >
+                          {task.submission.originalName || 'Download submission'}
+                        </a>
+                      )}
+                      {task.submission.uploadedAt && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Uploaded: {new Date(task.submission.uploadedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Remarks</p>
+                      <Textarea
+                        value={remarks}
+                        onChange={(event) => setRemarks(event.target.value)}
+                        placeholder="Add your feedback for the student..."
+                        rows={4}
+                      />
+                      <Button onClick={handleSaveRemarks} disabled={isSaving} className="w-full">
+                        {isSaving ? 'Saving...' : 'Save Remarks'}
+                      </Button>
+                    </div>
+
+                    {task.review?.remarks && task.review.reviewedAt && (
+                      <p className="text-xs text-muted-foreground">
+                        Last reviewed: {new Date(task.review.reviewedAt).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

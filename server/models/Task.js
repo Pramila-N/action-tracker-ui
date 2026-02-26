@@ -25,6 +25,19 @@ const taskSchema = new mongoose.Schema(
     totalElapsedTime: { type: Number, default: 0 }, // Total time in seconds
     currentStartTime: { type: Date, default: null }, // When current session started
     isRunning: { type: Boolean, default: false }, // Is timer currently running
+
+    submission: {
+      fileName: { type: String, default: null },
+      originalName: { type: String, default: null },
+      mimeType: { type: String, default: null },
+      size: { type: Number, default: null },
+      uploadedAt: { type: Date, default: null },
+    },
+    review: {
+      remarks: { type: String, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    },
   },
   { versionKey: false }
 );

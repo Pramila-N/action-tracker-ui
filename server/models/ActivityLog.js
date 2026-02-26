@@ -24,6 +24,8 @@ const activityLogSchema = new mongoose.Schema({
       'timer_started',
       'timer_stopped',
       'task_completed',
+      'work_submitted',
+      'review_submitted',
     ],
     required: true,
   },

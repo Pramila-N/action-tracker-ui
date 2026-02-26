@@ -1,10 +1,80 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const Task = require('../models/Task');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const ActivityLog = require('../models/ActivityLog');
 
 const router = express.Router();
+
+const uploadDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Download file route - MUST BE BEFORE /:id routes
+router.get('/download/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(uploadDir, filename);
+
+    console.log('Download request:', { 
+      filename, 
+      filePath, 
+      uploadDir,
+      exists: fs.existsSync(filePath),
+      filesInDir: fs.readdirSync(uploadDir)
+    });
+
+    if (!fs.existsSync(filePath)) {
+      console.error('File not found at path:', filePath);
+      return res.status(404).json({ message: 'File not found', filename, uploadDir });
+    }
+
+    const stat = fs.statSync(filePath);
+    console.log('File stats:', { size: stat.size, isFile: stat.isFile() });
+
+    // Send file directly (will display PDF in browser)
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        console.error('Send file error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error sending file' });
+        }
+      } else {
+        console.log('File sent successfully:', filename);
+      }
+    });
+  } catch (error) {
+    console.error('Download route error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadDir),
+    filename: (_req, file, cb) => {
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${Date.now()}_${safeName}`);
+    },
+  }),
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Only PDF or DOCX files are allowed.'));
+    }
+
+    return cb(null, true);
+  },
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 router.post('/', async (req, res) => {
   try {
@@ -38,7 +108,8 @@ router.post('/', async (req, res) => {
 
     const populatedTask = await Task.findById(task._id)
       .populate('assignedTo', 'name email role')
-      .populate('createdBy', 'name email role');
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
 
     await Notification.create({
       userId: assignedTo,
@@ -81,7 +152,8 @@ router.get('/', async (req, res) => {
     const tasks = await Task.find(filter)
       .sort({ createdAt: -1 })
       .populate('assignedTo', 'name email role')
-      .populate('createdBy', 'name email role');
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
 
     console.log(`📊 Found ${tasks.length} tasks`);
     if (tasks.length > 0) {
@@ -104,7 +176,8 @@ router.get('/:id', async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
       .populate('assignedTo', 'name email role')
-      .populate('createdBy', 'name email role');
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
 
     if (!task) {
       return res.status(404).json({ message: 'Task not found.' });
@@ -155,7 +228,8 @@ router.put('/:id', async (req, res) => {
 
     const task = await Task.findByIdAndUpdate(req.params.id, updates, { new: true })
       .populate('assignedTo', 'name email role')
-      .populate('createdBy', 'name email role');
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
 
     if (!task) {
       return res.status(404).json({ message: 'Task not found.' });
@@ -252,7 +326,8 @@ router.post('/:id/timer/start', async (req, res) => {
 
     const populatedTask = await Task.findById(task._id)
       .populate('assignedTo', 'name email role')
-      .populate('createdBy', 'name email role');
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
 
     // Log timer start activity
     await ActivityLog.create({
@@ -300,7 +375,8 @@ router.post('/:id/timer/stop', async (req, res) => {
 
     const populatedTask = await Task.findById(task._id)
       .populate('assignedTo', 'name email role')
-      .populate('createdBy', 'name email role');
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
 
     // Log timer stop activity
     await ActivityLog.create({
@@ -322,6 +398,125 @@ router.post('/:id/timer/stop', async (req, res) => {
     });
   } catch (error) {
     console.error('Stop timer error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+router.post('/:id/submission', upload.single('file'), async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'Please upload a PDF or DOCX file.' });
+    }
+
+    console.log('File uploaded:', {
+      filename: req.file.filename,
+      path: req.file.path,
+      originalname: req.file.originalname
+    });
+
+    const task = await Task.findById(req.params.id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    if (task.status !== 'completed') {
+      return res.status(400).json({ message: 'Please complete the task before submitting work.' });
+    }
+
+    task.submission = {
+      fileName: req.file.filename,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      uploadedAt: new Date(),
+    };
+    task.review = { remarks: null, reviewedAt: null, reviewedBy: null };
+
+    await task.save();
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
+
+    await Notification.create({
+      userId: task.createdBy._id,
+      type: 'work_submitted',
+      message: `Submission received for task "${task.title}"`,
+      taskId: task._id,
+    });
+
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: userId || task.assignedTo._id,
+      action: 'work_submitted',
+      description: `Work submitted for task "${task.title}"`,
+      changes: { submission: { to: req.file.originalname } },
+    });
+
+    return res.json({ task: populatedTask });
+  } catch (error) {
+    console.error('Submit work error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+router.put('/:id/remarks', async (req, res) => {
+  try {
+    const { remarks, reviewedBy } = req.body;
+
+    if (!remarks || !reviewedBy) {
+      return res.status(400).json({ message: 'Remarks and reviewedBy are required.' });
+    }
+
+    const task = await Task.findById(req.params.id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    if (!task.submission || !task.submission.fileName) {
+      return res.status(400).json({ message: 'No submission found for this task.' });
+    }
+
+    task.review = {
+      remarks,
+      reviewedAt: new Date(),
+      reviewedBy,
+    };
+
+    await task.save();
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
+
+    await Notification.create({
+      userId: task.assignedTo._id,
+      type: 'review_submitted',
+      message: `Faculty left remarks for task "${task.title}"`,
+      taskId: task._id,
+    });
+
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: reviewedBy,
+      action: 'review_submitted',
+      description: `Remarks added for task "${task.title}"`,
+      changes: { review: { to: remarks } },
+    });
+
+    return res.json({ task: populatedTask });
+  } catch (error) {
+    console.error('Submit remarks error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 });

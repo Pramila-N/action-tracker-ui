@@ -7,7 +7,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
-import { ArrowLeft, Play, Pause, CheckCircle, Calendar, User, Clock } from 'lucide-react';
+import { ArrowLeft, Play, Pause, CheckCircle, Calendar, User, Clock, Upload } from 'lucide-react';
 import { formatTime } from '@/data/mockData';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -27,6 +27,8 @@ export function StudentTaskDetails() {
   const [currentElapsedTime, setCurrentElapsedTime] = useState(0);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<'pending' | 'in_progress' | 'completed' | 'overdue'>('pending');
+  const [submissionFile, setSubmissionFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Load task from backend
   const loadTask = async () => {
@@ -234,6 +236,62 @@ export function StudentTaskDetails() {
     }
   }, [status, handleMarkComplete]);
 
+  const handleSubmitWork = async () => {
+    if (!taskId || !user) {
+      return;
+    }
+
+    if (!submissionFile) {
+      toast({
+        title: 'Missing file',
+        description: 'Please upload a PDF or DOCX file before submitting.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const formData = new FormData();
+      formData.append('file', submissionFile);
+      formData.append('userId', user.id);
+
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/submission`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to submit work.');
+      }
+
+      const loadedTask: Task = {
+        ...data.task,
+        createdAt: new Date(data.task.createdAt),
+        deadline: new Date(data.task.deadline),
+      };
+
+      setTask(loadedTask);
+      setSubmissionFile(null);
+
+      toast({
+        title: 'Work submitted',
+        description: 'Your file was submitted successfully for review.',
+      });
+    } catch (error: any) {
+      console.error('Submit work error:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to submit your work.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <DashboardLayout requiredRole="student">
@@ -261,6 +319,10 @@ export function StudentTaskDetails() {
     const secs = seconds % 60;
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const submissionUrl = task.submission?.fileName
+    ? `${API_BASE_URL}/api/tasks/download/${task.submission.fileName}`
+    : null;
 
   return (
     <DashboardLayout requiredRole="student">
@@ -319,6 +381,60 @@ export function StudentTaskDetails() {
                     <CheckCircle className="h-4 w-4" />
                     Mark as Completed
                   </Button>
+                )}
+
+                {status === 'completed' && (
+                  <div className="space-y-3 border-t pt-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Submit Your Work</p>
+                      <p className="text-xs text-muted-foreground">Accepted files: PDF, DOCX</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={(event) => setSubmissionFile(event.target.files?.[0] || null)}
+                      aria-label="Upload your work"
+                      className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary hover:file:bg-primary/20"
+                    />
+                    <Button
+                      onClick={handleSubmitWork}
+                      className="w-full gap-2"
+                      variant="default"
+                      disabled={isSubmitting}
+                    >
+                      <Upload className="h-4 w-4" />
+                      {task.submission?.fileName ? 'Replace Submission' : 'Submit Your Work'}
+                    </Button>
+                    {task.submission?.fileName && submissionUrl && (
+                      <div className="rounded-md border p-3 text-sm">
+                        <p className="font-medium">Submitted File</p>
+                        <a
+                          href={submissionUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary underline underline-offset-2"
+                        >
+                          {task.submission.originalName || 'Download submission'}
+                        </a>
+                        {task.submission.uploadedAt && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Uploaded: {new Date(task.submission.uploadedAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {task.review?.remarks && (
+                      <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                        <p className="font-medium">Faculty Remarks</p>
+                        <p className="text-muted-foreground mt-1">{task.review.remarks}</p>
+                        {task.review.reviewedAt && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Reviewed: {new Date(task.review.reviewedAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>

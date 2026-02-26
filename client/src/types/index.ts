@@ -31,6 +31,19 @@ export interface Task {
   currentStartTime?: Date | string; // When current session started
   isRunning?: boolean; // Is timer currently running
   currentElapsedTime?: number; // Computed: totalElapsedTime + current session time
+
+  submission?: {
+    fileName?: string | null;
+    originalName?: string | null;
+    mimeType?: string | null;
+    size?: number | null;
+    uploadedAt?: Date | string | null;
+  };
+  review?: {
+    remarks?: string | null;
+    reviewedAt?: Date | string | null;
+    reviewedBy?: User | string | null;
+  };
 }
 
 export interface TimeEntry {
