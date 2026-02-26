@@ -35,7 +35,7 @@ export function Navbar() {
     let isMounted = true;
 
     const loadNotifications = async () => {
-      if (!user || user.role !== 'student') {
+      if (!user) {
         return;
       }
 
@@ -122,7 +122,7 @@ export function Navbar() {
         </div>
 
         <div className="flex flex-1 items-center justify-end gap-3">
-          {user?.role === 'student' && (
+          {user && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative">

@@ -24,4 +24,7 @@ notificationSchema.set('toJSON', {
   },
 });
 
+// Index to help with duplicate prevention queries
+notificationSchema.index({ userId: 1, taskId: 1, type: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Notification', notificationSchema);

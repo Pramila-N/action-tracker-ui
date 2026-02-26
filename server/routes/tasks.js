@@ -258,13 +258,25 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Task not found.' });
     }
 
-    // Create notification
-    await Notification.create({
-      userId: task.assignedTo._id,
-      type: 'task_updated',
-      message: `Task updated: "${task.title}"`,
-      taskId: task._id,
-    });
+    // Create notification only if there are actual changes
+    if (Object.keys(updates).length > 0) {
+      // Check if notification already exists for this task and type to prevent duplicates
+      const existingNotif = await Notification.findOne({
+        userId: task.assignedTo._id,
+        taskId: task._id,
+        type: 'task_updated',
+        createdAt: { $gte: new Date(Date.now() - 60000) }, // Within last minute
+      });
+
+      if (!existingNotif) {
+        await Notification.create({
+          userId: task.assignedTo._id,
+          type: 'task_updated',
+          message: `Task updated: "${task.title}"`,
+          taskId: task._id,
+        });
+      }
+    }
 
     // Log activity with detailed changes
     let action = 'task_updated';
@@ -467,12 +479,22 @@ router.post('/:id/submission', upload.single('file'), async (req, res) => {
       .populate('createdBy', 'name email role')
       .populate('review.reviewedBy', 'name email role');
 
-    await Notification.create({
+    // Check if notification already exists to prevent duplicates
+    const existingSubmissionNotif = await Notification.findOne({
       userId: task.createdBy._id,
-      type: 'work_submitted',
-      message: `Submission received for task "${task.title}"`,
       taskId: task._id,
+      type: 'work_submitted',
+      createdAt: { $gte: new Date(Date.now() - 60000) }, // Within last minute
     });
+
+    if (!existingSubmissionNotif) {
+      await Notification.create({
+        userId: task.createdBy._id,
+        type: 'work_submitted',
+        message: `Submission received for task "${task.title}"`,
+        taskId: task._id,
+      });
+    }
 
     await ActivityLog.create({
       taskId: task._id,
@@ -522,12 +544,22 @@ router.put('/:id/remarks', async (req, res) => {
       .populate('createdBy', 'name email role')
       .populate('review.reviewedBy', 'name email role');
 
-    await Notification.create({
+    // Check if notification already exists to prevent duplicates
+    const existingReviewNotif = await Notification.findOne({
       userId: task.assignedTo._id,
-      type: 'review_submitted',
-      message: `Faculty left remarks for task "${task.title}"`,
       taskId: task._id,
+      type: 'review_submitted',
+      createdAt: { $gte: new Date(Date.now() - 60000) }, // Within last minute
     });
+
+    if (!existingReviewNotif) {
+      await Notification.create({
+        userId: task.assignedTo._id,
+        type: 'review_submitted',
+        message: `Faculty left remarks for task "${task.title}"`,
+        taskId: task._id,
+      });
+    }
 
     await ActivityLog.create({
       taskId: task._id,
