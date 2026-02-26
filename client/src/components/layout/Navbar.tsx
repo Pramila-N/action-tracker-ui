@@ -20,6 +20,7 @@ interface Notification {
   type: string;
   message: string;
   isRead: boolean;
+  taskId?: string;
   createdAt: string;
 }
 
@@ -88,6 +89,31 @@ export function Navbar() {
     navigate('/login');
   };
 
+  const handleNotificationClick = async (notif: Notification) => {
+    if (!notif.taskId) return;
+
+    // Mark notification as read
+    try {
+      await fetch(`${API_BASE_URL}/api/notifications/${notif.id}/read`, {
+        method: 'PUT',
+      });
+      
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+
+    // Navigate based on user role and notification type
+    if (user?.role === 'student') {
+      navigate(`/student/tasks/${notif.taskId}`);
+    } else if (user?.role === 'faculty') {
+      navigate(`/faculty/tasks/${notif.taskId}`);
+    }
+  };
+
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -151,12 +177,18 @@ export function Navbar() {
                     </div>
                   ) : (
                     notifications.map((notif) => (
-                      <DropdownMenuItem key={notif.id} className={`flex-col items-start gap-1 py-3 ${!notif.isRead ? 'bg-accent/10' : ''}`}>
+                      <button
+                        key={notif.id}
+                        onClick={() => handleNotificationClick(notif)}
+                        className={`w-full text-left px-2 py-3 flex flex-col gap-1 border-b hover:bg-secondary/50 transition-colors ${
+                          !notif.isRead ? 'bg-accent/10' : ''
+                        }`}
+                      >
                         <p className="text-sm font-medium">{notif.message}</p>
                         <p className="text-xs text-muted-foreground">
                           {new Date(notif.createdAt).toLocaleString()}
                         </p>
-                      </DropdownMenuItem>
+                      </button>
                     ))
                   )}
                 </div>

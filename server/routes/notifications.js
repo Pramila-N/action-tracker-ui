@@ -22,6 +22,24 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Mark all read MUST come before /:id routes
+router.put('/mark-all-read', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ message: 'userId is required.' });
+    }
+
+    await Notification.updateMany({ userId, isRead: false }, { isRead: true });
+
+    return res.json({ message: 'All notifications marked as read.' });
+  } catch (error) {
+    console.error('Mark all read error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
 router.put('/:id/read', async (req, res) => {
   try {
     const notification = await Notification.findByIdAndUpdate(
@@ -37,23 +55,6 @@ router.put('/:id/read', async (req, res) => {
     return res.json({ notification });
   } catch (error) {
     console.error('Mark notification read error:', error);
-    return res.status(500).json({ message: 'Server error. Please try again later.' });
-  }
-});
-
-router.put('/mark-all-read', async (req, res) => {
-  try {
-    const { userId } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ message: 'userId is required.' });
-    }
-
-    await Notification.updateMany({ userId, isRead: false }, { isRead: true });
-
-    return res.json({ message: 'All notifications marked as read.' });
-  } catch (error) {
-    console.error('Mark all read error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 });

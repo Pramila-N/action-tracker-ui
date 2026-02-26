@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, UserPlus, MoreHorizontal, Eye } from 'lucide-react';
+import { Search, MoreHorizontal, Eye } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { User } from '@/types';
@@ -67,15 +67,9 @@ export function UsersManagement() {
   return (
     <DashboardLayout requiredRole="admin">
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Users Management</h1>
-            <p className="text-muted-foreground mt-1">Manage all platform users</p>
-          </div>
-          <Button className="gap-2">
-            <UserPlus className="h-4 w-4" />
-            Add User
-          </Button>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Users Management</h1>
+          <p className="text-muted-foreground mt-1">Manage all platform users</p>
         </div>
 
         <Card className="shadow-card">
