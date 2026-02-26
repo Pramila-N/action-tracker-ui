@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, Loader2 } from 'lucide-react';
@@ -24,7 +25,7 @@ export function CreateTask() {
   const [isLoading, setIsLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [assignedTo, setAssignedTo] = useState('');
+  const [assignedToIds, setAssignedToIds] = useState<string[]>([]);
   const [priority, setPriority] = useState('');
   const [deadline, setDeadline] = useState<Date>();
   const [students, setStudents] = useState<User[]>([]);
@@ -32,6 +33,9 @@ export function CreateTask() {
   const [isLoadingTask, setIsLoadingTask] = useState(false);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const isEdit = Boolean(taskId);
+  const studentIds = students.map((student) => student.id);
+  const isAllSelected = studentIds.length > 0 && studentIds.every((id) => assignedToIds.includes(id));
 
   useEffect(() => {
     let isMounted = true;
@@ -89,7 +93,7 @@ export function CreateTask() {
         if (isMounted) {
           setTitle(data.task.title || '');
           setDescription(data.task.description || '');
-          setAssignedTo(data.task.assignedTo?.id || '');
+          setAssignedToIds(data.task.assignedTo?.id ? [data.task.assignedTo.id] : []);
           setPriority(data.task.priority || '');
           setDeadline(data.task.deadline ? new Date(data.task.deadline) : undefined);
         }
@@ -117,7 +121,7 @@ export function CreateTask() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!title || !description || !assignedTo || !priority || !deadline) {
+    if (!title || !description || assignedToIds.length === 0 || !priority || !deadline) {
       toast({
         title: 'Validation Error',
         description: 'Please fill in all fields',
@@ -137,14 +141,13 @@ export function CreateTask() {
 
     setIsLoading(true);
     try {
-      const isEdit = Boolean(taskId);
       const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId || ''}`.replace(/\/$/, ''), {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title,
           description,
-          assignedTo,
+          assignedTo: isEdit ? assignedToIds[0] : assignedToIds,
           priority,
           deadline,
           ...(isEdit ? {} : { createdBy: user.id }),
@@ -161,7 +164,9 @@ export function CreateTask() {
         title: isEdit ? 'Task Updated' : 'Task Created',
         description: isEdit
           ? 'The task has been updated successfully.'
-          : 'The task has been created successfully.',
+          : assignedToIds.length > 1
+            ? 'The task has been created for the selected students.'
+            : 'The task has been created successfully.',
       });
 
       navigate('/faculty/tasks');
@@ -183,7 +188,7 @@ export function CreateTask() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{taskId ? 'Edit Task' : 'Create Task'}</h1>
           <p className="text-muted-foreground mt-1">
-            {taskId ? 'Update task details' : 'Assign a new task to a student'}
+            {taskId ? 'Update task details' : 'Assign a new task to one or more students'}
           </p>
         </div>
 
@@ -219,29 +224,59 @@ export function CreateTask() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="assignedTo">Assign To</Label>
-                  <Select value={assignedTo} onValueChange={setAssignedTo} disabled={isLoadingTask}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a student" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {isLoadingTask ? (
-                        <SelectItem value="loading" disabled>
-                          Loading task...
-                        </SelectItem>
-                      ) : isLoadingStudents ? (
-                        <SelectItem value="loading" disabled>
-                          Loading students...
-                        </SelectItem>
-                      ) : (
-                        students.map((student) => (
-                          <SelectItem key={student.id} value={student.id}>
-                            {student.name}
-                          </SelectItem>
-                        ))
+                  <Label>Assign To</Label>
+                  {isLoadingTask ? (
+                    <div className="text-sm text-muted-foreground">Loading task...</div>
+                  ) : isLoadingStudents ? (
+                    <div className="text-sm text-muted-foreground">Loading students...</div>
+                  ) : students.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">No students available.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {!isEdit && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">Quick select</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAssignedToIds(isAllSelected ? [] : studentIds)}
+                          >
+                            {isAllSelected ? 'Clear all' : 'Select all'}
+                          </Button>
+                        </div>
                       )}
-                    </SelectContent>
-                  </Select>
+                      <div className="rounded-md border p-3 space-y-2 max-h-56 overflow-y-auto">
+                        {students.map((student) => {
+                          const isChecked = assignedToIds.includes(student.id);
+                          return (
+                            <label key={student.id} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={(checked) => {
+                                  const isNowChecked = checked === true;
+                                  if (isEdit) {
+                                    setAssignedToIds(isNowChecked ? [student.id] : []);
+                                    return;
+                                  }
+
+                                  setAssignedToIds((prev) =>
+                                    isNowChecked
+                                      ? [...prev, student.id]
+                                      : prev.filter((id) => id !== student.id)
+                                  );
+                                }}
+                              />
+                              <span className="text-muted-foreground">{student.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {isEdit ? 'Select one student for this task.' : `${assignedToIds.length} student(s) selected.`}
+                  </p>
                 </div>
 
                 <div className="space-y-2">

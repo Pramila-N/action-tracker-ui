@@ -80,54 +80,77 @@ router.post('/', async (req, res) => {
   try {
     const { title, description, assignedTo, priority, deadline, createdBy } = req.body;
 
-    if (!title || !description || !assignedTo || !priority || !deadline || !createdBy) {
+    const assignedList = Array.isArray(assignedTo) ? assignedTo : [assignedTo];
+    const uniqueAssignedList = [...new Set(assignedList.filter(Boolean))];
+
+    if (!title || !description || uniqueAssignedList.length === 0 || !priority || !deadline || !createdBy) {
       return res.status(400).json({ message: 'Title, description, assignedTo, priority, deadline, and createdBy are required.' });
     }
 
-    const [assignedUser, createdUser] = await Promise.all([
-      User.findById(assignedTo),
+    const [assignedUsers, createdUser] = await Promise.all([
+      User.find({ _id: { $in: uniqueAssignedList } }),
       User.findById(createdBy),
     ]);
-
-    if (!assignedUser || assignedUser.role !== 'student') {
-      return res.status(400).json({ message: 'Assigned user must be a student.' });
-    }
 
     if (!createdUser || createdUser.role !== 'faculty') {
       return res.status(400).json({ message: 'Created by must be a faculty user.' });
     }
 
-    const task = await Task.create({
-      title,
-      description,
-      assignedTo,
-      priority,
-      deadline,
-      createdBy,
-    });
+    const studentUsers = assignedUsers.filter((user) => user.role === 'student');
+    if (studentUsers.length !== uniqueAssignedList.length) {
+      return res.status(400).json({ message: 'Assigned users must all be students.' });
+    }
 
-    const populatedTask = await Task.findById(task._id)
+    const tasks = await Task.create(
+      uniqueAssignedList.map((studentId) => ({
+        title,
+        description,
+        assignedTo: studentId,
+        priority,
+        deadline,
+        createdBy,
+      }))
+    );
+
+    const populatedTasks = await Task.find({ _id: { $in: tasks.map((task) => task._id) } })
+      .sort({ createdAt: -1 })
       .populate('assignedTo', 'name email role')
       .populate('createdBy', 'name email role')
       .populate('review.reviewedBy', 'name email role');
 
-    await Notification.create({
-      userId: assignedTo,
-      type: 'task_created',
-      message: `New task assigned: "${title}"`,
-      taskId: task._id,
-    });
+    const studentNameById = studentUsers.reduce((acc, student) => {
+      acc[student._id.toString()] = student.name;
+      return acc;
+    }, {});
 
-    // Log task creation
-    await ActivityLog.create({
-      taskId: task._id,
-      userId: createdBy,
-      action: 'task_created',
-      description: `Task "${title}" created and assigned to ${assignedUser.name}`,
-      changes: { status: 'pending', priority, deadline },
-    });
+    await Promise.all(
+      populatedTasks.map((task) =>
+        Notification.create({
+          userId: task.assignedTo._id,
+          type: 'task_created',
+          message: `New task assigned: "${task.title}"`,
+          taskId: task._id,
+        })
+      )
+    );
 
-    return res.status(201).json({ task: populatedTask });
+    await Promise.all(
+      populatedTasks.map((task) =>
+        ActivityLog.create({
+          taskId: task._id,
+          userId: createdBy,
+          action: 'task_created',
+          description: `Task "${task.title}" created and assigned to ${studentNameById[task.assignedTo._id.toString()] || 'student'}`,
+          changes: { status: 'pending', priority, deadline },
+        })
+      )
+    );
+
+    if (populatedTasks.length === 1) {
+      return res.status(201).json({ task: populatedTasks[0] });
+    }
+
+    return res.status(201).json({ tasks: populatedTasks });
   } catch (error) {
     console.error('Create task error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
