@@ -26,6 +26,7 @@ import { StudentDashboard } from "@/pages/student/StudentDashboard";
 import { StudentTasks } from "@/pages/student/StudentTasks";
 import { StudentTaskDetails } from "@/pages/student/StudentTaskDetails";
 import { TimeReports } from "@/pages/student/TimeReports";
+import { StudentLeaderboard } from "@/pages/student/StudentLeaderboard";
 
 // Common Pages
 import { ProfilePage } from "@/pages/ProfilePage";
@@ -85,6 +86,7 @@ function AppRoutes() {
       <Route path="/student/tasks" element={<ProtectedRoute><StudentTasks /></ProtectedRoute>} />
       <Route path="/student/tasks/:taskId" element={<ProtectedRoute><StudentTaskDetails /></ProtectedRoute>} />
       <Route path="/student/time-reports" element={<ProtectedRoute><TimeReports /></ProtectedRoute>} />
+      <Route path="/student/leaderboard" element={<ProtectedRoute><StudentLeaderboard /></ProtectedRoute>} />
       <Route path="/student/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       
       {/* Common Profile Route */}

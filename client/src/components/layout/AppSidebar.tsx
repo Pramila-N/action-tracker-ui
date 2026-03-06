@@ -7,6 +7,7 @@ import {
   PlusCircle,
   Clock,
   CheckSquare,
+  Trophy,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -40,6 +41,7 @@ const studentMenuItems = [
   { title: 'Dashboard', url: '/student', icon: LayoutDashboard },
   { title: 'My Tasks', url: '/student/tasks', icon: CheckSquare },
   { title: 'Time Reports', url: '/student/time-reports', icon: Clock },
+  { title: 'Leaderboard', url: '/student/leaderboard', icon: Trophy },
 ];
 
 export function AppSidebar() {

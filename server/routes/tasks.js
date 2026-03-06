@@ -295,13 +295,18 @@ router.put('/:id', async (req, res) => {
       logDescription = `Task "${task.title}" marked as completed`;
     }
 
-    await ActivityLog.create({
-      taskId: task._id,
-      userId: userId || task.assignedTo._id,
-      action,
-      description: logDescription,
-      changes,
-    });
+    try {
+      await ActivityLog.create({
+        taskId: task._id,
+        userId: userId || task.assignedTo._id,
+        action,
+        description: logDescription,
+        changes,
+      });
+      console.log(`✅ Activity logged: ${action} for task ${task._id}`);
+    } catch (logError) {
+      console.error('❌ Failed to create activity log:', logError);
+    }
 
     return res.json({ task });
   } catch (error) {
@@ -638,13 +643,18 @@ router.post('/:id/submit', async (req, res) => {
       taskId: task._id,
     });
 
-    await ActivityLog.create({
-      taskId: task._id,
-      userId: userId || task.assignedTo._id,
-      action: 'task_submitted',
-      description: `Task "${task.title}" submitted for review`,
-      changes: { status: { from: 'in_progress', to: 'submitted' } },
-    });
+    try {
+      await ActivityLog.create({
+        taskId: task._id,
+        userId: userId || task.assignedTo._id,
+        action: 'task_submitted',
+        description: `Task "${task.title}" submitted for review`,
+        changes: { status: { from: 'in_progress', to: 'submitted' } },
+      });
+      console.log(`✅ Activity logged: task_submitted for task ${task._id}`);
+    } catch (logError) {
+      console.error('❌ Failed to create activity log:', logError);
+    }
 
     return res.json({ task: populatedTask });
   } catch (error) {
@@ -715,13 +725,18 @@ router.post('/:id/review/accept', async (req, res) => {
       taskId: task._id,
     });
 
-    await ActivityLog.create({
-      taskId: task._id,
-      userId: reviewedBy,
-      action: 'task_accepted',
-      description: `Task "${task.title}" accepted by faculty`,
-      changes: { status: { from: oldStatus, to: newStatus } },
-    });
+    try {
+      await ActivityLog.create({
+        taskId: task._id,
+        userId: reviewedBy,
+        action: 'task_accepted',
+        description: `Task "${task.title}" accepted by faculty`,
+        changes: { status: { from: oldStatus, to: newStatus } },
+      });
+      console.log(`✅ Activity logged: task_accepted for task ${task._id}`);
+    } catch (logError) {
+      console.error('❌ Failed to create activity log:', logError);
+    }
 
     return res.json({ task: populatedTask });
   } catch (error) {
@@ -798,16 +813,21 @@ router.post('/:id/review/reject', async (req, res) => {
       taskId: task._id,
     });
 
-    await ActivityLog.create({
-      taskId: task._id,
-      userId: reviewedBy,
-      action: 'task_rejected',
-      description: `Task "${task.title}" rejected by faculty: ${remarks}`,
-      changes: { 
-        status: { from: oldStatus, to: newStatus }, 
-        review: { remarks } 
-      },
-    });
+    try {
+      await ActivityLog.create({
+        taskId: task._id,
+        userId: reviewedBy,
+        action: 'task_rejected',
+        description: `Task "${task.title}" rejected by faculty: ${remarks}`,
+        changes: { 
+          status: { from: oldStatus, to: newStatus }, 
+          review: { remarks } 
+        },
+      });
+      console.log(`✅ Activity logged: task_rejected for task ${task._id}`);
+    } catch (logError) {
+      console.error('❌ Failed to create activity log:', logError);
+    }
 
     return res.json({ task: populatedTask });
   } catch (error) {
@@ -891,6 +911,45 @@ router.get('/productivity/leaderboard', async (req, res) => {
     return res.json({ leaderboard });
   } catch (error) {
     console.error('Get leaderboard error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Get all students global leaderboard (for student view)
+router.get('/productivity/leaderboard/all', async (req, res) => {
+  try {
+    // Get all students
+    const students = await User.find({ role: 'student' }).select('id name email productivityScore');
+
+    // Get completed task count for each student
+    const leaderboardData = await Promise.all(
+      students.map(async (student) => {
+        const completedCount = await Task.countDocuments({
+          assignedTo: student._id,
+          status: { $in: ['completed', 'completed_late_rework'] },
+        });
+
+        return {
+          id: student._id.toString(),
+          name: student.name,
+          email: student.email,
+          productivityScore: student.productivityScore || 0,
+          completedTasks: completedCount,
+        };
+      })
+    );
+
+    // Sort by productivity score
+    const leaderboard = leaderboardData
+      .sort((a, b) => b.productivityScore - a.productivityScore)
+      .map((student, index) => ({
+        rank: index + 1,
+        ...student,
+      }));
+
+    return res.json({ leaderboard });
+  } catch (error) {
+    console.error('Get global leaderboard error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 });
