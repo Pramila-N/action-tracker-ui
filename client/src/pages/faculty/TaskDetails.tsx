@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,8 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { ArrowLeft, Edit, Clock, Calendar, User } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ArrowLeft, Edit, Clock, Calendar, User, CheckCircle, XCircle } from 'lucide-react';
 import { formatTime } from '@/data/mockData';
 import { Task } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +24,9 @@ export function TaskDetails() {
   const [isLoading, setIsLoading] = useState(true);
   const [remarks, setRemarks] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -99,51 +103,96 @@ export function TaskDetails() {
     ? `${API_BASE_URL}/api/tasks/download/${task.submission.fileName}`
     : null;
 
-  const handleSaveRemarks = async () => {
+  // Check if task is in submitted/reviewable state
+  const isReviewable = ['submitted', 'rework_required', 'late_rework_required'].includes(task.status);
+  const isAlreadyReviewed = task.review?.status === 'accepted' || task.review?.status === 'rejected';
+
+  const handleAcceptTask = async () => {
     if (!taskId || !user) {
       return;
     }
 
-    if (!remarks.trim()) {
+    try {
+      setIsReviewing(true);
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/review/accept`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reviewedBy: user.id }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to accept task.');
+      }
+
+      setTask(normalizeTask(data.task));
+
       toast({
-        title: 'Remarks required',
-        description: 'Please add remarks before saving.',
+        title: 'Task Accepted',
+        description: 'The task has been marked as completed.',
+      });
+    } catch (error: any) {
+      console.error('Accept task error:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to accept task.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsReviewing(false);
+    }
+  };
+
+  const handleRejectTask = async () => {
+    if (!taskId || !user) {
+      return;
+    }
+
+    if (!rejectReason.trim()) {
+      toast({
+        title: 'Reason required',
+        description: 'Please provide a reason for rejection.',
         variant: 'destructive',
       });
       return;
     }
 
     try {
-      setIsSaving(true);
-      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/remarks`, {
-        method: 'PUT',
+      setIsReviewing(true);
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/review/reject`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ remarks, reviewedBy: user.id }),
+        body: JSON.stringify({ reviewedBy: user.id, remarks: rejectReason }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data?.message || 'Failed to save remarks.');
+        throw new Error(data?.message || 'Failed to reject task.');
       }
 
       setTask(normalizeTask(data.task));
+      setRejectReason('');
+      setShowRejectForm(false);
 
       toast({
-        title: 'Remarks saved',
-        description: 'Your review has been sent to the student.',
+        title: 'Task Rejected',
+        description: 'The student has been notified and can now make corrections.',
       });
     } catch (error: any) {
-      console.error('Save remarks error:', error);
+      console.error('Reject task error:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to save remarks.',
+        description: error.message || 'Failed to reject task.',
         variant: 'destructive',
       });
     } finally {
-      setIsSaving(false);
+      setIsReviewing(false);
     }
   };
 
@@ -166,6 +215,14 @@ export function TaskDetails() {
             Edit Task
           </Button>
         </div>
+
+        {isReviewable && (
+          <Alert className="bg-blue-50 border-blue-200">
+            <AlertDescription className="text-blue-900">
+              This task is ready for review. The student submitted their work and is awaiting your feedback.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
@@ -257,7 +314,7 @@ export function TaskDetails() {
                 {!task.submission?.fileName ? (
                   <p className="text-sm text-muted-foreground">No submission received yet.</p>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div className="rounded-md border p-3 text-sm">
                       <p className="font-medium">Submitted File</p>
                       {submissionUrl && (
@@ -277,23 +334,79 @@ export function TaskDetails() {
                       )}
                     </div>
 
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">Remarks</p>
-                      <Textarea
-                        value={remarks}
-                        onChange={(event) => setRemarks(event.target.value)}
-                        placeholder="Add your feedback for the student..."
-                        rows={4}
-                      />
-                      <Button onClick={handleSaveRemarks} disabled={isSaving} className="w-full">
-                        {isSaving ? 'Saving...' : 'Save Remarks'}
-                      </Button>
-                    </div>
+                    {/* Review Decision Section */}
+                    {isReviewable && !isAlreadyReviewed && (
+                      <div className="border-t pt-4 space-y-3">
+                        <p className="text-sm font-medium">Review Decision</p>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleAcceptTask}
+                            className="flex-1 gap-2 bg-green-600 hover:bg-green-700"
+                            disabled={isReviewing}
+                          >
+                            <CheckCircle className="h-4 w-4" />
+                            Accept
+                          </Button>
+                          <Button
+                            onClick={() => setShowRejectForm(!showRejectForm)}
+                            variant="destructive"
+                            className="flex-1 gap-2"
+                            disabled={isReviewing}
+                          >
+                            <XCircle className="h-4 w-4" />
+                            Reject
+                          </Button>
+                        </div>
 
-                    {task.review?.remarks && task.review.reviewedAt && (
-                      <p className="text-xs text-muted-foreground">
-                        Last reviewed: {new Date(task.review.reviewedAt).toLocaleString()}
-                      </p>
+                        {showRejectForm && (
+                          <div className="space-y-2 pt-2 border-t">
+                            <label className="text-sm font-medium">Reason for Rejection</label>
+                            <Textarea
+                              value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value)}
+                              placeholder="Explain what needs to be fixed..."
+                              rows={3}
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                onClick={handleRejectTask}
+                                variant="destructive"
+                                className="flex-1"
+                                disabled={isReviewing}
+                              >
+                                {isReviewing ? 'Rejecting...' : 'Confirm Rejection'}
+                              </Button>
+                              <Button
+                                onClick={() => setShowRejectForm(false)}
+                                variant="outline"
+                                className="flex-1"
+                                disabled={isReviewing}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Show Review Status if already reviewed */}
+                    {isAlreadyReviewed && task.review?.remarks && (
+                      <div className={`rounded-md border-l-4 p-3 ${
+                        task.review.status === 'accepted' 
+                          ? 'bg-green-50 border-green-400' 
+                          : 'bg-orange-50 border-orange-400'
+                      }`}>
+                        <p className="font-medium mb-1">
+                          {task.review.status === 'accepted' ? 'Accepted' : 'Rejected'}
+                        </p>
+                        <p className="text-muted-foreground text-sm">{task.review.remarks}</p>
+                        {task.review.reviewedAt && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Reviewed: {new Date(task.review.reviewedAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

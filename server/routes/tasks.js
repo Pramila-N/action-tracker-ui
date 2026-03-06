@@ -459,8 +459,8 @@ router.post('/:id/submission', upload.single('file'), async (req, res) => {
       return res.status(404).json({ message: 'Task not found.' });
     }
 
-    if (task.status !== 'completed') {
-      return res.status(400).json({ message: 'Please complete the task before submitting work.' });
+    if ((task.progress || 0) < 100) {
+      return res.status(400).json({ message: 'Task progress must be 100% before uploading work.' });
     }
 
     task.submission = {
@@ -470,7 +470,7 @@ router.post('/:id/submission', upload.single('file'), async (req, res) => {
       size: req.file.size,
       uploadedAt: new Date(),
     };
-    task.review = { remarks: null, reviewedAt: null, reviewedBy: null };
+    task.review = { remarks: null, reviewedAt: null, reviewedBy: null, status: null };
 
     await task.save();
 
@@ -572,6 +572,399 @@ router.put('/:id/remarks', async (req, res) => {
     return res.json({ task: populatedTask });
   } catch (error) {
     console.error('Submit remarks error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// ===== NEW ENDPOINTS FOR TASK SUBMISSION & REVIEW =====
+
+// Student submits task when progress reaches 100%
+router.post('/:id/submit', async (req, res) => {
+  try {
+    const { userId, progress } = req.body;
+    const task = await Task.findById(req.params.id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    const requestedProgress = Number(progress) || 0;
+    const effectiveProgress = Math.max(task.progress || 0, requestedProgress);
+
+    if (effectiveProgress < 100) {
+      return res.status(400).json({ message: 'Task progress must be 100% to submit.' });
+    }
+
+    if (!task.submission || !task.submission.fileName) {
+      return res.status(400).json({ message: 'Please upload a file before submitting for review.' });
+    }
+
+    if (task.status === 'submitted' || task.status === 'completed' || task.status === 'completed_late_rework') {
+      return res.status(400).json({ message: 'Task is already submitted or finalized.' });
+    }
+
+    task.progress = 100;
+
+    // Determine if submission is early or late
+    const submissionTime = new Date();
+    const deadline = new Date(task.deadline);
+    task.isLate = submissionTime > deadline;
+    task.isEarly = submissionTime < deadline;
+
+    // Auto-calculate time spent from assignment to submission.
+    task.timeSpent = Math.max(0, Math.floor((submissionTime.getTime() - new Date(task.createdAt).getTime()) / 1000));
+    task.totalElapsedTime = task.timeSpent;
+    task.isRunning = false;
+    task.currentStartTime = null;
+
+    // Change status to submitted
+    task.status = 'submitted';
+    task.submittedAt = submissionTime;
+
+    await task.save();
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
+
+    // Notify faculty about submission
+    await Notification.create({
+      userId: task.createdBy._id,
+      type: 'task_submitted',
+      message: `Task submitted: "${task.title}" by ${task.assignedTo.name}`,
+      taskId: task._id,
+    });
+
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: userId || task.assignedTo._id,
+      action: 'task_submitted',
+      description: `Task "${task.title}" submitted for review`,
+      changes: { status: { from: 'in_progress', to: 'submitted' } },
+    });
+
+    return res.json({ task: populatedTask });
+  } catch (error) {
+    console.error('Submit task error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Faculty accepts task submission
+router.post('/:id/review/accept', async (req, res) => {
+  try {
+    const { reviewedBy } = req.body;
+    const task = await Task.findById(req.params.id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    if (task.status !== 'submitted' && task.status !== 'rework_required' && task.status !== 'late_rework_required') {
+      return res.status(400).json({ message: 'Task is not in a reviewable state.' });
+    }
+
+    // Capture old status before changing
+    const oldStatus = task.status;
+
+    // Update review status
+    task.review = {
+      remarks: 'Accepted',
+      reviewedAt: new Date(),
+      reviewedBy,
+      status: 'accepted',
+    };
+
+    // Set final status based on submission timing
+    const newStatus = task.status === 'late_rework_required' ? 'completed_late_rework' : 'completed';
+    task.status = newStatus;
+
+    // Calculate and update productivity score
+    const student = await User.findById(task.assignedTo._id);
+    if (student) {
+      let scorePoints = 0;
+      if (task.isEarly) {
+        scorePoints = 7; // Early completion
+      } else if (!task.isLate) {
+        scorePoints = 5; // On-time completion
+      } else if (task.isLate && task.rejectionCount === 0) {
+        scorePoints = -2; // Late submission first time
+      }
+      
+      student.productivityScore = (student.productivityScore || 0) + scorePoints;
+      await student.save();
+    }
+
+    await task.save();
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
+
+    // Notify student about acceptance
+    await Notification.create({
+      userId: task.assignedTo._id,
+      type: 'task_accepted',
+      message: `Task "${task.title}" has been accepted by faculty`,
+      taskId: task._id,
+    });
+
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: reviewedBy,
+      action: 'task_accepted',
+      description: `Task "${task.title}" accepted by faculty`,
+      changes: { status: { from: oldStatus, to: newStatus } },
+    });
+
+    return res.json({ task: populatedTask });
+  } catch (error) {
+    console.error('Accept task error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Faculty rejects task submission
+router.post('/:id/review/reject', async (req, res) => {
+  try {
+    const { reviewedBy, remarks } = req.body;
+
+    if (!remarks) {
+      return res.status(400).json({ message: 'Remarks are required for rejection.' });
+    }
+
+    const task = await Task.findById(req.params.id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    if (task.status !== 'submitted' && task.status !== 'rework_required' && task.status !== 'late_rework_required') {
+      return res.status(400).json({ message: 'Task is not in a reviewable state.' });
+    }
+
+    // Capture old status before changing
+    const oldStatus = task.status;
+
+    // Update review status
+    task.review = {
+      remarks,
+      reviewedAt: new Date(),
+      reviewedBy,
+      status: 'rejected',
+    };
+
+    // Increment rejection count
+    task.rejectionCount = (task.rejectionCount || 0) + 1;
+
+    // Determine rejection status
+    const deadline = new Date(task.deadline);
+    const now = new Date();
+    
+    const newStatus = now > deadline ? 'late_rework_required' : 'rework_required';
+    task.status = newStatus;
+
+    // Deduct points for rejection
+    const student = await User.findById(task.assignedTo._id);
+    if (student) {
+      student.productivityScore = Math.max(0, (student.productivityScore || 0) - 1); // -1 for rejection
+      await student.save();
+    }
+
+    await task.save();
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
+
+    // Notify student about rejection
+    const rejectionMessage = now > deadline 
+      ? `Task "${task.title}" has been rejected (after deadline). Please review the remarks and resubmit.`
+      : `Task "${task.title}" has been rejected. Please review the remarks and resubmit.`;
+
+    await Notification.create({
+      userId: task.assignedTo._id,
+      type: 'task_rejected',
+      message: rejectionMessage,
+      taskId: task._id,
+    });
+
+    await ActivityLog.create({
+      taskId: task._id,
+      userId: reviewedBy,
+      action: 'task_rejected',
+      description: `Task "${task.title}" rejected by faculty: ${remarks}`,
+      changes: { 
+        status: { from: oldStatus, to: newStatus }, 
+        review: { remarks } 
+      },
+    });
+
+    return res.json({ task: populatedTask });
+  } catch (error) {
+    console.error('Reject task error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Get student productivity score
+router.get('/productivity/student/:studentId', async (req, res) => {
+  try {
+    const student = await User.findById(req.params.studentId);
+
+    if (!student || student.role !== 'student') {
+      return res.status(404).json({ message: 'Student not found.' });
+    }
+
+    const completedTasks = await Task.countDocuments({
+      assignedTo: student._id,
+      status: { $in: ['completed', 'completed_late_rework'] },
+    });
+
+    return res.json({
+      studentId: student._id,
+      studentName: student.name,
+      productivityScore: student.productivityScore || 0,
+      completedTasks,
+    });
+  } catch (error) {
+    console.error('Get productivity error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Get top 5 performing students (for a faculty member)
+router.get('/productivity/leaderboard', async (req, res) => {
+  try {
+    const { createdBy } = req.query;
+
+    if (!createdBy) {
+      return res.status(400).json({ message: 'createdBy is required.' });
+    }
+
+    // Get all unique students assigned to this faculty member's tasks
+    const tasks = await Task.find({ createdBy })
+      .select('assignedTo')
+      .populate('assignedTo', 'name email productivityScore');
+
+    const studentsMap = new Map();
+    tasks.forEach((task) => {
+      const studentId = task.assignedTo._id.toString();
+      if (!studentsMap.has(studentId)) {
+        studentsMap.set(studentId, {
+          id: studentId,
+          name: task.assignedTo.name,
+          productivityScore: task.assignedTo.productivityScore || 0,
+          completedTasks: 0,
+        });
+      }
+    });
+
+    // Count completed tasks for each student
+    for (const student of studentsMap.values()) {
+      const completedCount = await Task.countDocuments({
+        assignedTo: student.id,
+        status: { $in: ['completed', 'completed_late_rework'] },
+        createdBy,
+      });
+      student.completedTasks = completedCount;
+    }
+
+    // Sort by productivity score and get top 5
+    const leaderboard = Array.from(studentsMap.values())
+      .sort((a, b) => b.productivityScore - a.productivityScore)
+      .slice(0, 5)
+      .map((student, index) => ({
+        rank: index + 1,
+        ...student,
+      }));
+
+    return res.json({ leaderboard });
+  } catch (error) {
+    console.error('Get leaderboard error:', error);
+    return res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+});
+
+// Check and send deadline notifications
+router.post('/:id/check-deadline-notifications', async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id)
+      .populate('assignedTo', 'name email role');
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
+
+    const now = new Date();
+    const deadline = new Date(task.deadline);
+    const timeUntilDeadline = deadline.getTime() - now.getTime();
+    const hoursUntilDeadline = timeUntilDeadline / (1000 * 60 * 60);
+
+    const notifications = task.notifications || {};
+    let notificationSent = false;
+    let message = '';
+
+    // 24 hours before deadline
+    if (hoursUntilDeadline <= 24 && hoursUntilDeadline > 2 && !notifications.twentyFourHoursBefore) {
+      message = `Reminder: Task "${task.title}" is due in 24 hours`;
+      notifications.twentyFourHoursBefore = true;
+      notificationSent = true;
+    }
+    // 2 hours before deadline
+    else if (hoursUntilDeadline <= 2 && hoursUntilDeadline > 0 && !notifications.twoHoursBefore) {
+      message = `Urgent: Task "${task.title}" is due in 2 hours`;
+      notifications.twoHoursBefore = true;
+      notificationSent = true;
+    }
+    // After deadline
+    else if (hoursUntilDeadline <= 0 && !notifications.afterDeadline) {
+      message = `Deadline passed: Task "${task.title}" is overdue`;
+      notifications.afterDeadline = true;
+      notificationSent = true;
+      
+      // Update status to overdue if not already completed
+      if (task.status !== 'completed' && task.status !== 'completed_late_rework') {
+        task.status = 'overdue';
+      }
+    }
+
+    if (notificationSent) {
+      task.notifications = notifications;
+      await task.save();
+
+      const assignedUserId = task.assignedTo && task.assignedTo._id ? task.assignedTo._id : task.assignedTo;
+      if (assignedUserId) {
+        await Notification.create({
+          userId: assignedUserId,
+          type: 'deadline_reminder',
+          message,
+          taskId: task._id,
+        });
+      }
+    }
+
+    const populatedTask = await Task.findById(task._id)
+      .populate('assignedTo', 'name email role')
+      .populate('createdBy', 'name email role')
+      .populate('review.reviewedBy', 'name email role');
+
+    return res.json({ 
+      task: populatedTask, 
+      notificationSent, 
+      message 
+    });
+  } catch (error) {
+    console.error('Check deadline notifications error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 });

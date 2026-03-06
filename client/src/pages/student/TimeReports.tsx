@@ -38,6 +38,10 @@ export function TimeReports() {
     };
 
     loadTasks();
+    
+    // Poll every 30 seconds for updates
+    const interval = setInterval(loadTasks, 30000);
+    return () => clearInterval(interval);
   }, [API_BASE_URL, user]);
 
   // Calculate real-time data from actual tasks

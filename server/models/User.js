@@ -8,6 +8,9 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ['admin', 'faculty', 'student'], required: true },
     avatar: { type: String },
     createdAt: { type: Date, default: Date.now },
+    
+    // Productivity score for students
+    productivityScore: { type: Number, default: 0 },
   },
   { versionKey: false }
 );

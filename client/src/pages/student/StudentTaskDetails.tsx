@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +7,8 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
-import { ArrowLeft, Play, Pause, CheckCircle, Calendar, User, Clock, Upload } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ArrowLeft, Calendar, User, Clock, Send, AlertTriangle } from 'lucide-react';
 import { formatTime } from '@/data/mockData';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -24,11 +25,11 @@ export function StudentTaskDetails() {
   
   const [task, setTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentElapsedTime, setCurrentElapsedTime] = useState(0);
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState<'pending' | 'in_progress' | 'completed' | 'overdue'>('pending');
+  const [status, setStatus] = useState<any>('pending');
   const [submissionFile, setSubmissionFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<string>('');
 
   // Load task from backend
   const loadTask = async () => {
@@ -49,7 +50,6 @@ export function StudentTaskDetails() {
       };
 
       setTask(loadedTask);
-      setCurrentElapsedTime(loadedTask.currentElapsedTime || loadedTask.timeSpent || 0);
       setProgress(loadedTask.progress || 0);
       setStatus(loadedTask.status || 'pending');
     } catch (error) {
@@ -68,100 +68,34 @@ export function StudentTaskDetails() {
     loadTask();
   }, [taskId, user]);
 
-  // Update timer display every second if timer is running
+  // Update deadline countdown
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
-    if (task?.isRunning && task?.currentStartTime) {
-      interval = setInterval(() => {
-        const startTime = new Date(task.currentStartTime).getTime();
-        const now = Date.now();
-        const sessionTime = Math.floor((now - startTime) / 1000);
-        const totalElapsedTime = (task.totalElapsedTime || 0) + sessionTime;
-        setCurrentElapsedTime(totalElapsedTime);
-      }, 1000);
-    }
-    
+    if (!task) return;
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      const deadline = new Date(task.deadline);
+      const diff = deadline.getTime() - now.getTime();
+
+      if (diff > 0) {
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+        if (days > 0) {
+          setTimeRemaining(`${days}d ${hours}h remaining`);
+        } else if (hours > 0) {
+          setTimeRemaining(`${hours}h ${minutes}m remaining`);
+        } else {
+          setTimeRemaining(`${minutes}m remaining`);
+        }
+      } else {
+        setTimeRemaining('Deadline passed');
+      }
+    }, 1000);
+
     return () => clearInterval(interval);
-  }, [task?.isRunning, task?.currentStartTime, task?.totalElapsedTime]);
-
-  // Start the timer
-  const handleStartTimer = async () => {
-    if (!taskId) return;
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/timer/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.message || 'Failed to start timer.');
-      }
-
-      // Reload task to get updated state
-      await loadTask();
-
-      toast({
-        title: 'Timer Started',
-        description: 'Your work session has begun.',
-      });
-    } catch (error: any) {
-      console.error('Start timer error:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to start timer.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  // Stop the timer
-  const handleStopTimer = async () => {
-    if (!taskId) return;
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/timer/stop`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.message || 'Failed to stop timer.');
-      }
-
-      // Reload task to get updated state
-      await loadTask();
-
-      toast({
-        title: 'Timer Stopped',
-        description: `Session saved: ${formatTime(data.sessionTime || 0)}`,
-      });
-    } catch (error: any) {
-      console.error('Stop timer error:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to stop timer.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleToggleTimer = useCallback(async () => {
-    if (task?.isRunning) {
-      await handleStopTimer();
-    } else {
-      await handleStartTimer();
-    }
-  }, [task?.isRunning]);
+  }, [task?.deadline]);
 
   // Update task directly (for progress, status, etc.)
   const updateTask = async (updates: Partial<Task>) => {
@@ -196,8 +130,16 @@ export function StudentTaskDetails() {
         throw new Error(data?.message || 'Failed to update task.');
       }
 
-      // Reload task to get fresh data from database
-      await loadTask();
+      // Use the updated task from response instead of reloading
+      const updatedTask: Task = {
+        ...data.task,
+        createdAt: new Date(data.task.createdAt),
+        deadline: new Date(data.task.deadline),
+      };
+
+      setTask(updatedTask);
+      setProgress(updatedTask.progress || 0);
+      setStatus(updatedTask.status || 'pending');
     } catch (error) {
       console.error('Update task error:', error);
       toast({
@@ -208,43 +150,32 @@ export function StudentTaskDetails() {
     }
   };
 
-  const handleMarkComplete = useCallback(async () => {
-    // Stop timer if running
-    if (task?.isRunning) {
-      await handleStopTimer();
-    }
-    
-    await updateTask({ 
-      status: 'completed', 
-      progress: 100,
-    });
-    
-    toast({
-      title: 'Task Completed! 🎉',
-      description: 'Great job! The task has been marked as complete.',
-    });
-  }, [task?.isRunning]);
-
-  const handleProgressChange = useCallback(async (value: number[]) => {
+  const handleProgressChange = async (value: number[]) => {
     const newProgress = value[0];
     setProgress(newProgress);
     
-    if (newProgress === 100 && status !== 'completed') {
-      await handleMarkComplete();
-    } else {
-      await updateTask({ progress: newProgress });
-    }
-  }, [status, handleMarkComplete]);
+    await updateTask({ progress: newProgress });
+  };
 
-  const handleSubmitWork = async () => {
-    if (!taskId || !user) {
+  // Submit task for review when progress is 100%
+  const handleSubmitTaskForReview = async () => {
+    if (!taskId || !user || !task) {
+      return;
+    }
+
+    if (progress < 100) {
+      toast({
+        title: 'Not Ready',
+        description: 'Task progress must reach 100% to submit.',
+        variant: 'destructive',
+      });
       return;
     }
 
     if (!submissionFile) {
       toast({
-        title: 'Missing file',
-        description: 'Please upload a PDF or DOCX file before submitting.',
+        title: 'File Required',
+        description: 'Please upload a PDF or DOCX file before submitting for review.',
         variant: 'destructive',
       });
       return;
@@ -252,19 +183,37 @@ export function StudentTaskDetails() {
 
     try {
       setIsSubmitting(true);
+      if (task.progress < 100) {
+        await updateTask({ progress: 100 });
+      }
+
       const formData = new FormData();
       formData.append('file', submissionFile);
       formData.append('userId', user.id);
 
-      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/submission`, {
+      const uploadResponse = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/submission`, {
         method: 'POST',
         body: formData,
+      });
+
+      const uploadData = await uploadResponse.json();
+
+      if (!uploadResponse.ok) {
+        throw new Error(uploadData?.message || 'Failed to upload submission file.');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: user.id, progress: 100 }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data?.message || 'Failed to submit work.');
+        throw new Error(data?.message || 'Failed to submit task.');
       }
 
       const loadedTask: Task = {
@@ -274,17 +223,18 @@ export function StudentTaskDetails() {
       };
 
       setTask(loadedTask);
+      setStatus(loadedTask.status);
       setSubmissionFile(null);
 
       toast({
-        title: 'Work submitted',
-        description: 'Your file was submitted successfully for review.',
+        title: 'Task Submitted!',
+        description: 'Your task has been submitted for review. Faculty will review it soon.',
       });
     } catch (error: any) {
-      console.error('Submit work error:', error);
+      console.error('Submit task error:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to submit your work.',
+        description: error.message || 'Failed to submit task.',
         variant: 'destructive',
       });
     } finally {
@@ -313,13 +263,10 @@ export function StudentTaskDetails() {
     );
   }
 
-  const formatTimerDisplay = (seconds: number) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
+  const isSubmitted = ['submitted', 'rework_required', 'late_rework_required', 'completed', 'completed_late_rework'].includes(status);
+  const isRejected = ['rework_required', 'late_rework_required'].includes(status);
+  const isCompleted = ['completed', 'completed_late_rework'].includes(status);
+  const canSubmitForReview = progress === 100 && (status === 'pending' || status === 'in_progress' || isRejected || status === 'overdue');
   const submissionUrl = task.submission?.fileName
     ? `${API_BASE_URL}/api/tasks/download/${task.submission.fileName}`
     : null;
@@ -339,6 +286,16 @@ export function StudentTaskDetails() {
             </div>
           </div>
         </div>
+
+        {isRejected && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              This task was {task.status === 'late_rework_required' ? 'rejected after deadline' : 'rejected'}. 
+              Please review the feedback and make corrections before resubmitting.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
@@ -366,73 +323,93 @@ export function StudentTaskDetails() {
                     onValueChange={handleProgressChange}
                     max={100}
                     step={5}
-                    disabled={status === 'completed'}
+                    disabled={isCompleted || progress === 100}
                     className="w-full"
                   />
                   <Progress value={progress} className="h-3" />
+                  {progress === 100 && (
+                    <p className="text-xs text-muted-foreground">
+                      Progress is locked after reaching 100%.
+                    </p>
+                  )}
                 </div>
 
-                {status !== 'completed' && (
-                  <Button 
-                    onClick={handleMarkComplete} 
-                    className="w-full gap-2"
-                    variant="default"
-                  >
-                    <CheckCircle className="h-4 w-4" />
-                    Mark as Completed
-                  </Button>
-                )}
-
-                {status === 'completed' && (
+                {canSubmitForReview && (
                   <div className="space-y-3 border-t pt-4">
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">Submit Your Work</p>
-                      <p className="text-xs text-muted-foreground">Accepted files: PDF, DOCX</p>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Upload Work File</p>
+                      <p className="text-xs text-muted-foreground">Accepted formats: PDF, DOCX</p>
                     </div>
                     <input
                       type="file"
+                      aria-label="Upload submission file"
                       accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                       onChange={(event) => setSubmissionFile(event.target.files?.[0] || null)}
-                      aria-label="Upload your work"
                       className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary hover:file:bg-primary/20"
                     />
                     <Button
-                      onClick={handleSubmitWork}
+                      onClick={handleSubmitTaskForReview}
                       className="w-full gap-2"
-                      variant="default"
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || !submissionFile}
                     >
-                      <Upload className="h-4 w-4" />
-                      {task.submission?.fileName ? 'Replace Submission' : 'Submit Your Work'}
+                      <Send className="h-4 w-4" />
+                      {isSubmitting ? 'Submitting...' : 'Upload and Submit for Review'}
                     </Button>
-                    {task.submission?.fileName && submissionUrl && (
-                      <div className="rounded-md border p-3 text-sm">
-                        <p className="font-medium">Submitted File</p>
-                        <a
-                          href={submissionUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary underline underline-offset-2"
-                        >
-                          {task.submission.originalName || 'Download submission'}
-                        </a>
-                        {task.submission.uploadedAt && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Uploaded: {new Date(task.submission.uploadedAt).toLocaleString()}
-                          </p>
-                        )}
-                      </div>
+                  </div>
+                )}
+
+                {/* Submitted Status */}
+                {isSubmitted && (
+                  <div className="rounded-md bg-green-50 p-4 border border-green-200">
+                    <p className="font-semibold text-green-900">Task Submitted</p>
+                    {task.submittedAt && (
+                      <p className="text-sm text-green-800 mt-1">
+                        Submitted at {new Date(task.submittedAt).toLocaleString()}
+                      </p>
                     )}
-                    {task.review?.remarks && (
-                      <div className="rounded-md border bg-muted/40 p-3 text-sm">
-                        <p className="font-medium">Faculty Remarks</p>
-                        <p className="text-muted-foreground mt-1">{task.review.remarks}</p>
-                        {task.review.reviewedAt && (
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Reviewed: {new Date(task.review.reviewedAt).toLocaleString()}
-                          </p>
-                        )}
-                      </div>
+                    {isRejected && (
+                      <p className="text-sm text-amber-800 mt-2">
+                        This task requires rework. Upload a corrected file and resubmit.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {task.submission?.fileName && submissionUrl && (
+                  <div className="rounded-md border p-3 text-sm">
+                    <p className="font-medium">Latest Uploaded File</p>
+                    <a
+                      href={submissionUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline underline-offset-2"
+                    >
+                      {task.submission.originalName || 'Download submission'}
+                    </a>
+                    {task.submission.uploadedAt && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Uploaded: {new Date(task.submission.uploadedAt).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Show Review Remarks if available */}
+                {task.review?.remarks && (
+                  <div className={cn(
+                    "rounded-md border p-4",
+                    task.review.status === 'accepted' 
+                      ? "bg-green-50 border-green-200" 
+                      : "bg-amber-50 border-amber-200"
+                  )}>
+                    <p className="font-semibold mb-2">
+                      {task.review.status === 'accepted' ? 'Accepted' : 'Feedback Required'}
+                    </p>
+                    <p className="text-muted-foreground">{task.review.remarks}</p>
+                    {task.review.reviewedAt && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Reviewed: {new Date(task.review.reviewedAt).toLocaleString()}
+                      </p>
                     )}
                   </div>
                 )}
@@ -441,72 +418,25 @@ export function StudentTaskDetails() {
           </div>
 
           <div className="space-y-6">
-            {/* Timer Card */}
-            <Card className={cn(
-              "shadow-card transition-all duration-300",
-              task?.isRunning && "ring-2 ring-primary shadow-card-hover"
-            )}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  Time Tracker
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="text-center">
-                  <p className={cn(
-                    "text-4xl font-mono font-bold tracking-wider",
-                    task?.isRunning && "text-primary animate-pulse"
-                  )}>
-                    {formatTimerDisplay(currentElapsedTime)}
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {task?.isRunning ? 'Timer running...' : 'Timer stopped'}
-                  </p>
-                </div>
-
-                <Button
-                  onClick={handleToggleTimer}
-                  className={cn(
-                    "w-full gap-2 h-12 text-lg",
-                    task?.isRunning 
-                      ? "bg-warning hover:bg-warning/90" 
-                      : "bg-success hover:bg-success/90"
-                  )}
-                  disabled={status === 'completed'}
-                >
-                  {task?.isRunning ? (
-                    <>
-                      <Pause className="h-5 w-5" />
-                      Stop Timer
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-5 w-5" />
-                      Start Timer
-                    </>
-                  )}
-                </Button>
-
-                <p className="text-xs text-center text-muted-foreground">
-                  Only one timer can run at a time
-                </p>
-              </CardContent>
-            </Card>
-
             {/* Task Details */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle>Task Info</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-primary/10 p-2">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-lg bg-primary/10 p-2 mt-0.5">
                     <Calendar className="h-4 w-4 text-primary" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm text-muted-foreground">Deadline</p>
                     <p className="font-medium">{new Date(task.deadline).toLocaleDateString()}</p>
+                    <p className={cn(
+                      "text-xs mt-1",
+                      timeRemaining.includes('passed') ? "text-red-600" : "text-muted-foreground"
+                    )}>
+                      {timeRemaining}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -524,7 +454,7 @@ export function StudentTaskDetails() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Total Time</p>
-                    <p className="font-medium">{formatTime(currentElapsedTime)}</p>
+                    <p className="font-medium">{formatTime(task.timeSpent || 0)}</p>
                   </div>
                 </div>
               </CardContent>

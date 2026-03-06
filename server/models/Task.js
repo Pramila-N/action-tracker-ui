@@ -6,7 +6,7 @@ const taskSchema = new mongoose.Schema(
     description: { type: String, required: true, trim: true },
     status: {
       type: String,
-      enum: ['pending', 'in_progress', 'completed', 'overdue'],
+      enum: ['pending', 'in_progress', 'submitted', 'rework_required', 'late_rework_required', 'completed', 'completed_late_rework', 'overdue'],
       default: 'pending',
     },
     priority: {
@@ -19,7 +19,7 @@ const taskSchema = new mongoose.Schema(
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     timeSpent: { type: Number, default: 0 }, // Kept for backward compatibility
-    progress: { type: Number, default: 0 },
+    progress: { type: Number, default: 0 }, // 0-100
     
     // Timer fields
     totalElapsedTime: { type: Number, default: 0 }, // Total time in seconds
@@ -33,11 +33,28 @@ const taskSchema = new mongoose.Schema(
       size: { type: Number, default: null },
       uploadedAt: { type: Date, default: null },
     },
+    
+    // Time spent calculation (Submission Time - Task Assigned Time)
+    submittedAt: { type: Date, default: null }, // When student submitted the task
+
     review: {
       remarks: { type: String, default: null },
       reviewedAt: { type: Date, default: null },
       reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      status: { type: String, enum: ['accepted', 'rejected', null], default: null }, // Added review status
     },
+
+    // Deadline notification tracking
+    notifications: {
+      twentyFourHoursBefore: { type: Boolean, default: false },
+      twoHoursBefore: { type: Boolean, default: false },
+      afterDeadline: { type: Boolean, default: false },
+    },
+
+    // Productivity score tracking
+    isLate: { type: Boolean, default: false }, // Was the submission late?
+    isEarly: { type: Boolean, default: false }, // Was the submission early?
+    rejectionCount: { type: Number, default: 0 }, // Number of times rejected
   },
   { versionKey: false }
 );
