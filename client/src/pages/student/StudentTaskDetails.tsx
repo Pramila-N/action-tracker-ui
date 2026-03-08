@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Task } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { TaskDiscussionForum } from '@/components/TaskDiscussionForum';
 
 export function StudentTaskDetails() {
   const { taskId } = useParams();
@@ -461,6 +462,8 @@ export function StudentTaskDetails() {
             </Card>
           </div>
         </div>
+
+        <TaskDiscussionForum taskId={task.id} />
       </div>
     </DashboardLayout>
   );

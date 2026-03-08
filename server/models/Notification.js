@@ -14,7 +14,8 @@ const notificationSchema = new mongoose.Schema(
         'task_submitted',
         'task_accepted',
         'task_rejected',
-        'deadline_reminder'
+        'deadline_reminder',
+        'forum_message'
       ], 
       required: true 
     },

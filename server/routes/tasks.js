@@ -1,11 +1,13 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const Task = require('../models/Task');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const ActivityLog = require('../models/ActivityLog');
+const TaskForumMessage = require('../models/TaskForumMessage');
 
 const router = express.Router();
 
@@ -101,6 +103,9 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Assigned users must all be students.' });
     }
 
+    // Generate taskGroupId for multi-student tasks to share forum
+    const taskGroupId = uniqueAssignedList.length > 1 ? crypto.randomUUID() : null;
+
     const tasks = await Task.create(
       uniqueAssignedList.map((studentId) => ({
         title,
@@ -109,6 +114,7 @@ router.post('/', async (req, res) => {
         priority,
         deadline,
         createdBy,
+        taskGroupId,
       }))
     );
 
@@ -332,6 +338,7 @@ router.delete('/:id', async (req, res) => {
     });
 
     await Task.findByIdAndDelete(req.params.id);
+    await TaskForumMessage.deleteMany({ taskId: task._id });
 
     return res.json({ message: 'Task deleted successfully.' });
   } catch (error) {

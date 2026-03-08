@@ -10,6 +10,7 @@ const taskRoutes = require('./routes/tasks');
 const userRoutes = require('./routes/users');
 const notificationRoutes = require('./routes/notifications');
 const activityLogRoutes = require('./routes/activityLogs');
+const forumRoutes = require('./routes/forum');
 
 const MONGO_URI = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
@@ -44,6 +45,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/activity-logs', activityLogRoutes);
+app.use('/api/forum', forumRoutes);
 
 // Connect to MongoDB and start server
 mongoose.connect(MONGO_URI)

@@ -18,6 +18,7 @@ const taskSchema = new mongoose.Schema(
     createdAt: { type: Date, default: Date.now },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    taskGroupId: { type: String, default: null }, // Links tasks assigned to multiple students
     timeSpent: { type: Number, default: 0 }, // Kept for backward compatibility
     progress: { type: Number, default: 0 }, // 0-100
     

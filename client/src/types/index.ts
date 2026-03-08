@@ -81,3 +81,30 @@ export interface KPICard {
   icon: React.ReactNode;
   trend?: 'up' | 'down' | 'neutral';
 }
+
+export interface TaskForumMessage {
+  id: string;
+  taskId: string;
+  senderId: string;
+  senderRole: 'student' | 'faculty';
+  message: string;
+  createdAt: Date | string;
+  sender?: {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+  };
+}
+
+export interface TaskForumStatus {
+  taskId: string;
+  forumId?: string;
+  isOpen: boolean;
+  expiresAt: Date | string;
+  message: string;
+  userRole: UserRole;
+  dailyMessageLimit: number;
+  dailyMessagesSent: number;
+  dailyMessagesRemaining: number | null;
+}

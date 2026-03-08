@@ -14,6 +14,7 @@ import { formatTime } from '@/data/mockData';
 import { Task } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { TaskDiscussionForum } from '@/components/TaskDiscussionForum';
 
 export function TaskDetails() {
   const { taskId } = useParams();
@@ -414,6 +415,8 @@ export function TaskDetails() {
             </Card>
           </div>
         </div>
+
+        <TaskDiscussionForum taskId={task.id} />
       </div>
     </DashboardLayout>
   );
