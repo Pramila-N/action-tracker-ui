@@ -14,7 +14,22 @@ const forumRoutes = require('./routes/forum');
 
 const MONGO_URI = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '';
+
+const defaultAllowedOrigins = [
+  'https://action-tracker-ui.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:8080',
+];
+
+const configuredOrigins = CLIENT_ORIGIN
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = configuredOrigins.length > 0
+  ? configuredOrigins
+  : defaultAllowedOrigins;
 
 if (!MONGO_URI) {
   console.error('❌ Error: MONGO_URI is not defined in .env file');
@@ -30,7 +45,14 @@ if (!fs.existsSync(uploadsDir)) {
 
 app.use(express.json());
 app.use(cors({
-  origin: CLIENT_ORIGIN,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
