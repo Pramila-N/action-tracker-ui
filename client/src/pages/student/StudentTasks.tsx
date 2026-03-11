@@ -20,7 +20,7 @@ export function StudentTasks() {
   const [studentTasks, setStudentTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://action-tracker-backend.onrender.com';
 
   const normalizeTask = (task: Task): Task => ({
     ...task,
