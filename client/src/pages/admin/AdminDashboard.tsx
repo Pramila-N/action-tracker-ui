@@ -1,43 +1,42 @@
-import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { KPICard } from '@/components/KPICard';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Users, CheckSquare, Clock, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { useQuery } from '@tanstack/react-query';
 
 export function AdminDashboard() {
-  const [users, setUsers] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://action-tracker-backend.onrender.com';
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [usersRes, tasksRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/users`),
-          fetch(`${API_BASE_URL}/api/tasks`)
-        ]);
-
-        const usersData = await usersRes.json();
-        const tasksData = await tasksRes.json();
-
-        if (usersRes.ok) setUsers(usersData.users || []);
-        if (tasksRes.ok) setTasks(tasksData.tasks || []);
-      } catch (error) {
-        console.error('Load data error:', error);
-      } finally {
-        setIsLoading(false);
+  const { data: users = [], isLoading: usersLoading } = useQuery<any[]>({
+    queryKey: ['admin-users'],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/users`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load users.');
       }
-    };
+      return data.users || [];
+    },
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
 
-    loadData();
-    
-    // Poll every 30 seconds for updates
-    const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
-  }, [API_BASE_URL]);
+  const { data: tasks = [], isLoading: tasksLoading } = useQuery<any[]>({
+    queryKey: ['admin-tasks'],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/tasks`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load tasks.');
+      }
+      return data.tasks || [];
+    },
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
+
+  const isLoading = usersLoading || tasksLoading;
 
   // Calculate stats from real data
   const totalTasks = tasks.length;

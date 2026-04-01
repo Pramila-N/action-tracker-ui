@@ -13,7 +13,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface Notification {
   id: string;
@@ -27,58 +28,65 @@ interface Notification {
 export function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const queryClient = useQueryClient();
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://action-tracker-backend.onrender.com';
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadNotifications = async () => {
+  const { data: notifications = [] } = useQuery<Notification[]>({
+    queryKey: ['notifications', user?.id],
+    queryFn: async () => {
       if (!user) {
-        return;
+        return [];
       }
 
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/notifications?userId=${user.id}`);
-        const data = await response.json();
+      const response = await fetch(`${API_BASE_URL}/api/notifications?userId=${user.id}`);
+      const data = await response.json();
 
-        if (!response.ok) {
-          throw new Error(data?.message || 'Failed to load notifications.');
-        }
-
-        if (isMounted) {
-          const notifs = data.notifications || [];
-          setNotifications(notifs);
-          setUnreadCount(notifs.filter((n: Notification) => !n.isRead).length);
-        }
-      } catch (error) {
-        console.error(error);
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load notifications.');
       }
-    };
 
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30000);
+      return data.notifications || [];
+    },
+    enabled: !!user,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
 
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [API_BASE_URL, user]);
+  const unreadCount = useMemo(
+    () => notifications.filter((n: Notification) => !n.isRead).length,
+    [notifications]
+  );
+
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      await fetch(`${API_BASE_URL}/api/notifications/mark-all-read`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user?.id }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications', user?.id] });
+    },
+  });
+
+  const markSingleReadMutation = useMutation({
+    mutationFn: async (notificationId: string) => {
+      await fetch(`${API_BASE_URL}/api/notifications/${notificationId}/read`, {
+        method: 'PUT',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications', user?.id] });
+    },
+  });
 
   const handleMarkAllRead = async () => {
     if (!user) return;
 
     try {
-      await fetch(`${API_BASE_URL}/api/notifications/mark-all-read`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id }),
-      });
-
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      setUnreadCount(0);
+      await markAllReadMutation.mutateAsync();
     } catch (error) {
       console.error(error);
     }
@@ -94,14 +102,7 @@ export function Navbar() {
 
     // Mark notification as read
     try {
-      await fetch(`${API_BASE_URL}/api/notifications/${notif.id}/read`, {
-        method: 'PUT',
-      });
-      
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n))
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      await markSingleReadMutation.mutateAsync(notif.id);
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }

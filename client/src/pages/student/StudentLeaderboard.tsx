@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { Trophy, Medal, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
 
 interface StudentRank {
   id: string;
@@ -16,64 +17,32 @@ interface StudentRank {
 
 export function StudentLeaderboard() {
   const { user } = useAuth();
-  const [leaderboard, setLeaderboard] = useState<StudentRank[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [currentStudentRank, setCurrentStudentRank] = useState<StudentRank | null>(null);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://action-tracker-backend.onrender.com';
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadLeaderboard = async () => {
-      if (!user) {
-        setIsLoading(false);
-        return;
+  const { data: leaderboard = [], isLoading } = useQuery<StudentRank[]>({
+    queryKey: ['student-leaderboard'],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/tasks/productivity/leaderboard/all`);
+      if (!response.ok) {
+        throw new Error(`Failed to load leaderboard: ${response.status}`);
       }
 
-      try {
-        // Get all students leaderboard
-        const response = await fetch(`${API_BASE_URL}/api/tasks/productivity/leaderboard/all`);
+      const data = await response.json();
+      return (data.leaderboard || []).map((student: StudentRank, index: number) => ({
+        ...student,
+        rank: index + 1,
+      }));
+    },
+    enabled: !!user,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
 
-        if (!response.ok) {
-          throw new Error(`Failed to load leaderboard: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const allStudents = data.leaderboard || [];
-
-        if (isMounted) {
-          // Add rank to each student
-          const rankedStudents = allStudents.map((student: StudentRank, index: number) => ({
-            ...student,
-            rank: index + 1,
-          }));
-
-          setLeaderboard(rankedStudents);
-
-          // Find current student's rank
-          const currentRank = rankedStudents.find((s: StudentRank) => s.id === user.id);
-          setCurrentStudentRank(currentRank || null);
-        }
-      } catch (error) {
-        console.error('Load leaderboard error:', error);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadLeaderboard();
-
-    // Poll every 30 seconds for updates
-    const interval = setInterval(loadLeaderboard, 30000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [API_BASE_URL, user]);
+  const currentStudentRank = useMemo(
+    () => leaderboard.find((s: StudentRank) => s.id === user?.id) || null,
+    [leaderboard, user?.id]
+  );
 
   const getMedalIcon = (rank: number) => {
     switch (rank) {

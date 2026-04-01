@@ -1,11 +1,15 @@
 const express = require('express');
 const Notification = require('../models/Notification');
+const { authenticateJWT } = require('../middleware/auth');
+const { validateRequest } = require('../middleware/validateRequest');
+const { notificationListQuerySchema, markAllReadBodySchema, taskIdParamSchema } = require('../validation/schemas');
 
 const router = express.Router();
+router.use(authenticateJWT);
 
-router.get('/', async (req, res) => {
+router.get('/', validateRequest({ query: notificationListQuerySchema }), async (req, res) => {
   try {
-    const { userId } = req.query;
+    const userId = req.query.userId || req.auth.userId;
 
     if (!userId) {
       return res.status(400).json({ message: 'userId is required.' });
@@ -22,10 +26,9 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Mark all read MUST come before /:id routes
-router.put('/mark-all-read', async (req, res) => {
+router.put('/mark-all-read', validateRequest({ body: markAllReadBodySchema }), async (req, res) => {
   try {
-    const { userId } = req.body;
+    const userId = req.body.userId || req.auth.userId;
 
     if (!userId) {
       return res.status(400).json({ message: 'userId is required.' });
@@ -40,7 +43,7 @@ router.put('/mark-all-read', async (req, res) => {
   }
 });
 
-router.put('/:id/read', async (req, res) => {
+router.put('/:id/read', validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const notification = await Notification.findByIdAndUpdate(
       req.params.id,

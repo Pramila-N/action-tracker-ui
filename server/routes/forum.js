@@ -3,8 +3,16 @@ const Task = require('../models/Task');
 const User = require('../models/User');
 const TaskForumMessage = require('../models/TaskForumMessage');
 const Notification = require('../models/Notification');
+const { authenticateJWT } = require('../middleware/auth');
+const { validateRequest } = require('../middleware/validateRequest');
+const {
+  forumTaskParamSchema,
+  forumStatusQuerySchema,
+  forumMessageBodySchema,
+} = require('../validation/schemas');
 
 const router = express.Router();
+router.use(authenticateJWT);
 const STUDENT_DAILY_LIMIT = 3;
 const FINAL_TASK_STATUSES = new Set(['completed', 'completed_late_rework']);
 
@@ -73,10 +81,10 @@ const getTaskAndParticipant = async (taskId, userId) => {
   return { task, user, isAssignedStudent, isTaskFaculty };
 };
 
-router.get('/messages/:taskId', async (req, res) => {
+router.get('/messages/:taskId', validateRequest({ params: forumTaskParamSchema, query: forumStatusQuerySchema }), async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { userId } = req.query;
+    const userId = req.query.userId || req.auth.userId;
 
     if (!userId) {
       return res.status(400).json({ message: 'userId is required.' });
@@ -101,10 +109,10 @@ router.get('/messages/:taskId', async (req, res) => {
   }
 });
 
-router.get('/status/:taskId', async (req, res) => {
+router.get('/status/:taskId', validateRequest({ params: forumTaskParamSchema, query: forumStatusQuerySchema }), async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { userId } = req.query;
+    const userId = req.query.userId || req.auth.userId;
 
     if (!userId) {
       return res.status(400).json({ message: 'userId is required.' });
@@ -149,9 +157,10 @@ router.get('/status/:taskId', async (req, res) => {
   }
 });
 
-router.post('/message', async (req, res) => {
+router.post('/message', validateRequest({ body: forumMessageBodySchema }), async (req, res) => {
   try {
-    const { taskId, senderId, message } = req.body;
+    const { taskId, message } = req.body;
+    const senderId = req.body.senderId || req.auth.userId;
 
     if (!taskId || !senderId || !message || !message.trim()) {
       return res.status(400).json({ message: 'taskId, senderId, and message are required.' });

@@ -76,8 +76,19 @@ mongoose.connect(MONGO_URI)
     console.log(`📌 Database: ${mongoose.connection.name}`);
     console.log(`🔗 Host: ${mongoose.connection.host}`);
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`\n🚀 Server is running on port ${PORT}`);
+    });
+
+    server.on('error', (error) => {
+      if (error && error.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use.`);
+        console.error('ℹ️ Stop the existing server process or use a different PORT in server/.env.');
+        process.exit(1);
+      }
+
+      console.error('❌ Server start error:', error);
+      process.exit(1);
     });
   })
   .catch((error) => {

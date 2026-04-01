@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -8,6 +9,15 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const ActivityLog = require('../models/ActivityLog');
 const TaskForumMessage = require('../models/TaskForumMessage');
+const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
+const { validateRequest } = require('../middleware/validateRequest');
+const {
+  taskIdParamSchema,
+  taskCreateBodySchema,
+  taskUpdateBodySchema,
+  taskListQuerySchema,
+  leaderboardQuerySchema,
+} = require('../validation/schemas');
 
 const router = express.Router();
 
@@ -78,9 +88,12 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-router.post('/', async (req, res) => {
+router.use(authenticateJWT);
+
+router.post('/', authorizeRoles(['faculty', 'admin']), validateRequest({ body: taskCreateBodySchema }), async (req, res) => {
   try {
-    const { title, description, assignedTo, priority, deadline, createdBy } = req.body;
+    const { title, description, assignedTo, priority, deadline } = req.body;
+    const createdBy = req.auth.userId;
 
     const assignedList = Array.isArray(assignedTo) ? assignedTo : [assignedTo];
     const uniqueAssignedList = [...new Set(assignedList.filter(Boolean))];
@@ -163,7 +176,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.get('/', async (req, res) => {
+router.get('/', validateRequest({ query: taskListQuerySchema }), async (req, res) => {
   try {
     const { assignedTo, createdBy } = req.query;
     const filter = {};
@@ -174,6 +187,14 @@ router.get('/', async (req, res) => {
 
     if (createdBy) {
       filter.createdBy = createdBy;
+    }
+
+    if (req.auth.role === 'student') {
+      filter.assignedTo = req.auth.userId;
+    }
+
+    if (req.auth.role === 'faculty') {
+      filter.createdBy = req.auth.userId;
     }
 
     console.log('📊 Tasks GET request with filter:', filter);
@@ -201,7 +222,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
       .populate('assignedTo', 'name email role')
@@ -219,7 +240,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorizeRoles(['faculty', 'admin', 'student']), validateRequest({ params: taskIdParamSchema, body: taskUpdateBodySchema }), async (req, res) => {
   try {
     const { title, description, assignedTo, priority, deadline, status, progress, timeSpent, userId } = req.body;
 
@@ -321,7 +342,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorizeRoles(['faculty', 'admin']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
       .populate('assignedTo', 'name email role');
@@ -348,7 +369,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Timer endpoints
-router.post('/:id/timer/start', async (req, res) => {
+router.post('/:id/timer/start', authorizeRoles(['student']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
 
@@ -395,7 +416,7 @@ router.post('/:id/timer/start', async (req, res) => {
   }
 });
 
-router.post('/:id/timer/stop', async (req, res) => {
+router.post('/:id/timer/stop', authorizeRoles(['student']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
 
@@ -449,7 +470,7 @@ router.post('/:id/timer/stop', async (req, res) => {
   }
 });
 
-router.post('/:id/submission', upload.single('file'), async (req, res) => {
+router.post('/:id/submission', authorizeRoles(['student']), validateRequest({ params: taskIdParamSchema }), upload.single('file'), async (req, res) => {
   try {
     const { userId } = req.body;
 
@@ -523,7 +544,7 @@ router.post('/:id/submission', upload.single('file'), async (req, res) => {
   }
 });
 
-router.put('/:id/remarks', async (req, res) => {
+router.put('/:id/remarks', authorizeRoles(['faculty', 'admin']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const { remarks, reviewedBy } = req.body;
 
@@ -591,7 +612,7 @@ router.put('/:id/remarks', async (req, res) => {
 // ===== NEW ENDPOINTS FOR TASK SUBMISSION & REVIEW =====
 
 // Student submits task when progress reaches 100%
-router.post('/:id/submit', async (req, res) => {
+router.post('/:id/submit', authorizeRoles(['student']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const { userId, progress } = req.body;
     const task = await Task.findById(req.params.id)
@@ -671,7 +692,7 @@ router.post('/:id/submit', async (req, res) => {
 });
 
 // Faculty accepts task submission
-router.post('/:id/review/accept', async (req, res) => {
+router.post('/:id/review/accept', authorizeRoles(['faculty', 'admin']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const { reviewedBy } = req.body;
     const task = await Task.findById(req.params.id)
@@ -753,7 +774,7 @@ router.post('/:id/review/accept', async (req, res) => {
 });
 
 // Faculty rejects task submission
-router.post('/:id/review/reject', async (req, res) => {
+router.post('/:id/review/reject', authorizeRoles(['faculty', 'admin']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const { reviewedBy, remarks } = req.body;
 
@@ -844,8 +865,12 @@ router.post('/:id/review/reject', async (req, res) => {
 });
 
 // Get student productivity score
-router.get('/productivity/student/:studentId', async (req, res) => {
+router.get('/productivity/student/:studentId', authorizeRoles(['admin', 'faculty', 'student']), async (req, res) => {
   try {
+    if (req.auth.role === 'student' && req.auth.userId !== req.params.studentId) {
+      return res.status(403).json({ message: 'Students can only access their own productivity score.' });
+    }
+
     const student = await User.findById(req.params.studentId);
 
     if (!student || student.role !== 'student') {
@@ -870,52 +895,56 @@ router.get('/productivity/student/:studentId', async (req, res) => {
 });
 
 // Get top 5 performing students (for a faculty member)
-router.get('/productivity/leaderboard', async (req, res) => {
+router.get('/productivity/leaderboard', authorizeRoles(['faculty', 'admin']), validateRequest({ query: leaderboardQuerySchema }), async (req, res) => {
   try {
-    const { createdBy } = req.query;
+    const createdBy = req.auth.role === 'admin'
+      ? req.query.createdBy
+      : req.auth.userId;
 
     if (!createdBy) {
       return res.status(400).json({ message: 'createdBy is required.' });
     }
 
-    // Get all unique students assigned to this faculty member's tasks
-    const tasks = await Task.find({ createdBy })
-      .select('assignedTo')
-      .populate('assignedTo', 'name email productivityScore');
+    const leaderboard = await Task.aggregate([
+      { $match: { createdBy: new mongoose.Types.ObjectId(createdBy) } },
+      {
+        $group: {
+          _id: '$assignedTo',
+          completedTasks: {
+            $sum: {
+              $cond: [
+                { $in: ['$status', ['completed', 'completed_late_rework']] },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'student',
+        },
+      },
+      { $unwind: '$student' },
+      {
+        $project: {
+          _id: 0,
+          id: { $toString: '$student._id' },
+          name: '$student.name',
+          email: '$student.email',
+          productivityScore: { $ifNull: ['$student.productivityScore', 0] },
+          completedTasks: 1,
+        },
+      },
+      { $sort: { productivityScore: -1, completedTasks: -1, name: 1 } },
+      { $limit: 5 },
+    ]);
 
-    const studentsMap = new Map();
-    tasks.forEach((task) => {
-      const studentId = task.assignedTo._id.toString();
-      if (!studentsMap.has(studentId)) {
-        studentsMap.set(studentId, {
-          id: studentId,
-          name: task.assignedTo.name,
-          productivityScore: task.assignedTo.productivityScore || 0,
-          completedTasks: 0,
-        });
-      }
-    });
-
-    // Count completed tasks for each student
-    for (const student of studentsMap.values()) {
-      const completedCount = await Task.countDocuments({
-        assignedTo: student.id,
-        status: { $in: ['completed', 'completed_late_rework'] },
-        createdBy,
-      });
-      student.completedTasks = completedCount;
-    }
-
-    // Sort by productivity score and get top 5
-    const leaderboard = Array.from(studentsMap.values())
-      .sort((a, b) => b.productivityScore - a.productivityScore)
-      .slice(0, 5)
-      .map((student, index) => ({
-        rank: index + 1,
-        ...student,
-      }));
-
-    return res.json({ leaderboard });
+    return res.json({ leaderboard: leaderboard.map((student, index) => ({ rank: index + 1, ...student })) });
   } catch (error) {
     console.error('Get leaderboard error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
@@ -923,38 +952,44 @@ router.get('/productivity/leaderboard', async (req, res) => {
 });
 
 // Get all students global leaderboard (for student view)
-router.get('/productivity/leaderboard/all', async (req, res) => {
+router.get('/productivity/leaderboard/all', authorizeRoles(['admin', 'faculty', 'student']), async (req, res) => {
   try {
-    // Get all students
-    const students = await User.find({ role: 'student' }).select('id name email productivityScore');
+    const leaderboard = await User.aggregate([
+      { $match: { role: 'student' } },
+      {
+        $lookup: {
+          from: 'tasks',
+          let: { studentId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$assignedTo', '$$studentId'] },
+                    { $in: ['$status', ['completed', 'completed_late_rework']] },
+                  ],
+                },
+              },
+            },
+            { $count: 'count' },
+          ],
+          as: 'completed',
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          id: { $toString: '$_id' },
+          name: 1,
+          email: 1,
+          productivityScore: { $ifNull: ['$productivityScore', 0] },
+          completedTasks: { $ifNull: [{ $arrayElemAt: ['$completed.count', 0] }, 0] },
+        },
+      },
+      { $sort: { productivityScore: -1, completedTasks: -1, name: 1 } },
+    ]);
 
-    // Get completed task count for each student
-    const leaderboardData = await Promise.all(
-      students.map(async (student) => {
-        const completedCount = await Task.countDocuments({
-          assignedTo: student._id,
-          status: { $in: ['completed', 'completed_late_rework'] },
-        });
-
-        return {
-          id: student._id.toString(),
-          name: student.name,
-          email: student.email,
-          productivityScore: student.productivityScore || 0,
-          completedTasks: completedCount,
-        };
-      })
-    );
-
-    // Sort by productivity score
-    const leaderboard = leaderboardData
-      .sort((a, b) => b.productivityScore - a.productivityScore)
-      .map((student, index) => ({
-        rank: index + 1,
-        ...student,
-      }));
-
-    return res.json({ leaderboard });
+    return res.json({ leaderboard: leaderboard.map((student, index) => ({ rank: index + 1, ...student })) });
   } catch (error) {
     console.error('Get global leaderboard error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
@@ -962,7 +997,7 @@ router.get('/productivity/leaderboard/all', async (req, res) => {
 });
 
 // Check and send deadline notifications
-router.post('/:id/check-deadline-notifications', async (req, res) => {
+router.post('/:id/check-deadline-notifications', authorizeRoles(['student', 'faculty', 'admin']), validateRequest({ params: taskIdParamSchema }), async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
       .populate('assignedTo', 'name email role');

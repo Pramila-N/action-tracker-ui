@@ -11,13 +11,11 @@ import { formatTime } from '@/data/mockData';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Task } from '@/types';
+import { useQuery } from '@tanstack/react-query';
 
 export function StudentDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [studentTasks, setStudentTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [productivityScore, setProductivityScore] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://action-tracker-backend.onrender.com';
@@ -59,67 +57,47 @@ export function StudentDashboard() {
     setNotifications(newNotifications);
   };
 
+  const { data: studentTasks = [], isLoading } = useQuery<Task[]>({
+    queryKey: ['student-tasks', user?.id],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/tasks?assignedTo=${user?.id}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load tasks.');
+      }
+
+      return (data.tasks || []).map(normalizeTask);
+    },
+    enabled: !!user,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
+
+  const { data: productivityData } = useQuery<{ productivityScore: number }>({
+    queryKey: ['student-productivity', user?.id],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/tasks/productivity/student/${user?.id}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load productivity score.');
+      }
+      return data;
+    },
+    enabled: !!user,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
+
   useEffect(() => {
-    let isMounted = true;
+    if (studentTasks.length > 0) {
+      checkDeadlineNotifications(studentTasks);
+    } else {
+      setNotifications([]);
+    }
+  }, [studentTasks]);
 
-    const loadTasks = async () => {
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/tasks?assignedTo=${user.id}`);
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data?.message || 'Failed to load tasks.');
-        }
-
-        if (isMounted) {
-          const normalizedTasks = (data.tasks || []).map(normalizeTask);
-          setStudentTasks(normalizedTasks);
-          checkDeadlineNotifications(normalizedTasks);
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadTasks();
-    
-    // Poll every 30 seconds for updates
-    const interval = setInterval(loadTasks, 30000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [API_BASE_URL, user]);
-
-  // Load productivity score
-  useEffect(() => {
-    if (!user) return;
-
-    const loadProductivityScore = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/tasks/productivity/student/${user.id}`);
-        const data = await response.json();
-
-        if (response.ok) {
-          setProductivityScore(data.productivityScore || 0);
-        }
-      } catch (error) {
-        console.error('Error loading productivity score:', error);
-      }
-    };
-
-    loadProductivityScore();
-  }, [API_BASE_URL, user]);
+  const productivityScore = productivityData?.productivityScore || 0;
 
   const completedCount = studentTasks.filter(t => t.status === 'completed' || t.status === 'completed_late_rework').length;
   const inProgressCount = studentTasks.filter(t => t.status === 'in_progress').length;

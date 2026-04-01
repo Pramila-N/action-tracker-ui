@@ -4,6 +4,7 @@ import { User, UserRole } from '@/types';
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  token: string | null;
   login: (email: string, password: string, role: UserRole) => Promise<boolean>;
   register: (name: string, email: string, password: string, role: UserRole) => Promise<boolean>;
   logout: () => void;
@@ -19,6 +20,7 @@ const normalizeUser = (data: User): User => ({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('auth_user');
     return saved ? normalizeUser(JSON.parse(saved)) : null;
@@ -37,6 +39,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const message = data?.message || 'Invalid credentials.';
       throw new Error(message);
     }
+
+    setToken(data.token);
+    localStorage.setItem('auth_token', data.token);
 
     const normalizedUser = normalizeUser(data.user);
     setUser(normalizedUser);
@@ -58,6 +63,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(message);
     }
 
+    setToken(data.token);
+    localStorage.setItem('auth_token', data.token);
+
     const normalizedUser = normalizeUser(data.user);
     setUser(normalizedUser);
     localStorage.setItem('auth_user', JSON.stringify(normalizedUser));
@@ -66,11 +74,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     setUser(null);
+    setToken(null);
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('auth_token');
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, isAuthenticated: !!user && !!token, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,15 +1,27 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const LoginHistory = require('../models/LoginHistory');
+const { validateRequest } = require('../middleware/validateRequest');
+const { JWT_SECRET } = require('../middleware/auth');
+const { loginBodySchema, registerBodySchema } = require('../validation/schemas');
 const router = express.Router();
-router.post('/login', async (req, res) => {
+
+const buildToken = (user) => jwt.sign(
+  {
+    userId: user._id.toString(),
+    role: user.role,
+    email: user.email,
+    name: user.name,
+  },
+  JWT_SECRET,
+  { expiresIn: '7d' }
+);
+
+router.post('/login', validateRequest({ body: loginBodySchema }), async (req, res) => {
   try {
     const { email, password, role } = req.body;
-
-    if (!email || !password || !role) {
-      return res.status(400).json({ message: 'Email, password, and role are required.' });
-    }
 
     const user = await User.findOne({ email: email.toLowerCase(), role });
     if (!user) {
@@ -29,24 +41,17 @@ router.post('/login', async (req, res) => {
       userAgent: req.headers['user-agent'] || 'unknown',
     });
 
-    return res.json({ user: user.toJSON() });
+    const token = buildToken(user);
+    return res.json({ token, user: user.toJSON() });
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 });
 
-router.post('/register', async (req, res) => {
+router.post('/register', validateRequest({ body: registerBodySchema }), async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-
-    if (!name || !email || !password || !role) {
-      return res.status(400).json({ message: 'Name, email, password, and role are required.' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters.' });
-    }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
@@ -61,7 +66,8 @@ router.post('/register', async (req, res) => {
       role,
     });
 
-    return res.status(201).json({ user: user.toJSON() });
+    const token = buildToken(user);
+    return res.status(201).json({ token, user: user.toJSON() });
   } catch (error) {
     console.error('Register error:', error);
     return res.status(500).json({ message: 'Server error. Please try again later.' });

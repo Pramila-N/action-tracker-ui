@@ -31,7 +31,15 @@ import { StudentLeaderboard } from "@/pages/student/StudentLeaderboard";
 // Common Pages
 import { ProfilePage } from "@/pages/ProfilePage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      refetchOnWindowFocus: true,
+      retry: 1,
+    },
+  },
+});
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();

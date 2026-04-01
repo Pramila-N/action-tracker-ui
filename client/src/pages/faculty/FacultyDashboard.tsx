@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { KPICard } from '@/components/KPICard';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -9,6 +8,7 @@ import { ListTodo, Clock, CheckCircle, AlertCircle, Plus, Trophy, Zap } from 'lu
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Task } from '@/types';
+import { useQuery } from '@tanstack/react-query';
 
 interface TopStudent {
   rank: number;
@@ -21,10 +21,6 @@ interface TopStudent {
 export function FacultyDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [topStudents, setTopStudents] = useState<TopStudent[]>([]);
-  const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(true);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://action-tracker-backend.onrender.com';
 
@@ -34,86 +30,35 @@ export function FacultyDashboard() {
     deadline: new Date(task.deadline),
   });
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadTasks = async () => {
-      if (!user) {
-        setIsLoading(false);
-        return;
+  const { data: tasks = [], isLoading } = useQuery<Task[]>({
+    queryKey: ['faculty-tasks', user?.id],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/tasks?createdBy=${user?.id}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load tasks.');
       }
+      return (data.tasks || []).map(normalizeTask);
+    },
+    enabled: !!user,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
 
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/tasks?createdBy=${user.id}`);
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data?.message || 'Failed to load tasks.');
-        }
-
-        if (isMounted) {
-          setTasks((data.tasks || []).map(normalizeTask));
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+  const { data: topStudents = [], isLoading: isLoadingLeaderboard } = useQuery<TopStudent[]>({
+    queryKey: ['faculty-top-students', user?.id],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/api/tasks/productivity/leaderboard?createdBy=${user?.id}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to load leaderboard.');
       }
-    };
-
-    loadTasks();
-    
-    // Poll every 30 seconds for updates
-    const interval = setInterval(loadTasks, 30000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [API_BASE_URL, user]);
-
-  // Load leaderboard (top 5 students)
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadLeaderboard = async () => {
-      if (!user) {
-        setIsLoadingLeaderboard(false);
-        return;
-      }
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/tasks/productivity/leaderboard?createdBy=${user.id}`);
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data?.message || 'Failed to load leaderboard.');
-        }
-
-        if (isMounted) {
-          setTopStudents(data.leaderboard || []);
-        }
-      } catch (error) {
-        console.error('Error loading leaderboard:', error);
-      } finally {
-        if (isMounted) {
-          setIsLoadingLeaderboard(false);
-        }
-      }
-    };
-
-    loadLeaderboard();
-    
-    // Poll every 30 seconds for updates
-    const interval = setInterval(loadLeaderboard, 30000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [API_BASE_URL, user]);
+      return data.leaderboard || [];
+    },
+    enabled: !!user,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
 
   const stats = {
     total: tasks.length,
