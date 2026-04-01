@@ -27,9 +27,11 @@ const configuredOrigins = CLIENT_ORIGIN
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const allowedOrigins = configuredOrigins.length > 0
-  ? configuredOrigins
-  : defaultAllowedOrigins;
+const allowedOrigins = [...new Set([...defaultAllowedOrigins, ...configuredOrigins])];
+
+const allowedOriginPatterns = [
+  /^https:\/\/.*\.vercel\.app$/,
+];
 
 if (!MONGO_URI) {
   console.error('❌ Error: MONGO_URI is not defined in .env file');
@@ -46,7 +48,11 @@ if (!fs.existsSync(uploadsDir)) {
 app.use(express.json());
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    const matchesPattern = origin
+      ? allowedOriginPatterns.some((pattern) => pattern.test(origin))
+      : false;
+
+    if (!origin || allowedOrigins.includes(origin) || matchesPattern) {
       callback(null, true);
       return;
     }
